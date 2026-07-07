@@ -26,11 +26,15 @@ from ..schemas import (
     Severity,
     ValidationStatus,
 )
-from ..utils.redos import safe_compile
+from ..knowledge.attack import ATTACK_TACTICS, normalize_technique, tactic_for_technique
+from ..utils.redos import is_safe_regex, safe_compile
 from ..utils.logging import get_logger
 from .base import BaseAdapter
 
 _log = get_logger("adapter.dmz.match")
+
+# Valid ATT&CK tactic (TAxxxx) or technique (Txxxx[.yyy]) id.
+_MITRE_TOKEN_RE = re.compile(r"^(?:TA\d{4}|T\d{4}(?:\.\d{3})?)$")
 
 
 def _parse_ts(value: str) -> datetime:
@@ -308,3 +312,147 @@ class DmzAdapter(BaseAdapter):
             if c.is_file():
                 return json.loads(c.read_text(encoding="utf-8"))
         raise FileNotFoundError(f"telemetry file not found for scenario: {tf}")
+
+    # --- rule linting -------------------------------------------------------
+    def lint_rule(self, rule: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Static-check one rule for structural and safety issues.
+
+        Returns a list of ``{severity, code, message}`` issues (empty = clean).
+        """
+        issues: List[Dict[str, str]] = []
+
+        def add(sev: str, code: str, msg: str) -> None:
+            issues.append({"severity": sev, "code": code, "message": msg})
+
+        for field in ("id", "name", "event_type"):
+            if not rule.get(field):
+                add("error", "missing-field", f"required field '{field}' is missing or empty")
+        if not rule.get("match"):
+            add("error", "no-match", "rule has no match conditions (matches nothing or everything)")
+
+        # MITRE ids must be valid TA/T tokens.
+        for tok in rule.get("mitre", []) or []:
+            if not _MITRE_TOKEN_RE.match(str(tok)):
+                add("warning", "bad-mitre", f"'{tok}' is not a valid ATT&CK tactic/technique id")
+
+        # Threshold / window sanity.
+        thr = rule.get("threshold", 1)
+        if not isinstance(thr, int) or thr < 1:
+            add("warning", "bad-threshold", f"threshold {thr!r} should be an integer >= 1")
+        win = rule.get("window_minutes", 5)
+        if not isinstance(win, (int, float)) or win <= 0:
+            add("warning", "bad-window", f"window_minutes {win!r} should be > 0")
+
+        # Match operators + regex safety.
+        match = rule.get("match", {}) or {}
+        valid_ops = {"regex", "eq", "ne", "gt", "gte", "lt", "lte", "contains", "in"}
+        for field, matcher in match.items():
+            if isinstance(matcher, dict) and "op" in matcher:
+                op = matcher["op"]
+                if op not in valid_ops:
+                    add("error", "bad-operator", f"field '{field}' uses unknown operator '{op}'")
+                if op == "regex":
+                    ok, reason = is_safe_regex(str(matcher.get("value", "")))
+                    if not ok:
+                        add("error", "unsafe-regex",
+                            f"field '{field}' regex refused: {reason}")
+        return issues
+
+    def lint_all(self) -> Dict[str, Any]:
+        """Lint every bundled rule; returns per-rule issues + a rollup."""
+        results: Dict[str, List[Dict[str, str]]] = {}
+        errors = warnings = 0
+        for rule in self.load_rules():
+            issues = self.lint_rule(rule)
+            if issues:
+                results[rule.get("id", "?")] = issues
+                errors += sum(1 for i in issues if i["severity"] == "error")
+                warnings += sum(1 for i in issues if i["severity"] == "warning")
+        return {"clean": not results, "errors": errors, "warnings": warnings, "by_rule": results}
+
+    # --- ATT&CK coverage ----------------------------------------------------
+    def build_coverage(self) -> Dict[str, Any]:
+        """Map the rule pack's ATT&CK coverage and surface tactic-level gaps."""
+        covered_techniques: Dict[str, List[str]] = {}   # technique -> rule ids
+        covered_tactics: set = set()
+        for rule in self.load_rules():
+            rid = rule.get("id", "?")
+            for tok in rule.get("mitre", []) or []:
+                tid = normalize_technique(tok)
+                if tid:
+                    covered_techniques.setdefault(tid, []).append(rid)
+                    tac = tactic_for_technique(tid)
+                    if tac:
+                        covered_tactics.add(tac)
+                elif str(tok).startswith("TA"):
+                    covered_tactics.add(str(tok))
+
+        tactic_rows = []
+        for ta_id, ta_name in ATTACK_TACTICS.items():
+            techs = [t for t in covered_techniques if tactic_for_technique(t) == ta_id]
+            tactic_rows.append({
+                "tactic_id": ta_id, "tactic": ta_name,
+                "covered": ta_id in covered_tactics or bool(techs),
+                "technique_count": len(techs),
+                "techniques": sorted(techs),
+            })
+        gaps = [r["tactic"] for r in tactic_rows if not r["covered"]]
+        return {
+            "techniques_covered": len(covered_techniques),
+            "tactics_covered": sum(1 for r in tactic_rows if r["covered"]),
+            "tactics_total": len(ATTACK_TACTICS),
+            "gaps": gaps,
+            "by_tactic": tactic_rows,
+            "technique_to_rules": {t: sorted(set(r)) for t, r in covered_techniques.items()},
+        }
+
+    # --- incident correlation -----------------------------------------------
+    def correlate_incidents(self, alerts: List[Dict[str, Any]],
+                            dwell_minutes: int = 60) -> List[Dict[str, Any]]:
+        """Group alerts on the same host within a dwell window into incidents.
+
+        Chains multi-stage activity (e.g. discovery -> lateral -> exfil on one
+        host) into a single incident with a dwell time, so a defender sees the
+        story instead of scattered alerts.
+        """
+        by_host: Dict[Any, List[Dict[str, Any]]] = {}
+        for a in alerts:
+            by_host.setdefault(a.get("host"), []).append(a)
+
+        incidents: List[Dict[str, Any]] = []
+        for host, host_alerts in by_host.items():
+            host_alerts.sort(key=lambda a: _parse_ts(a.get("first_ts") or a.get("last_ts") or ""))
+            cluster: List[Dict[str, Any]] = []
+            window = dwell_minutes * 60
+
+            def flush() -> None:
+                if not cluster:
+                    return
+                ts0 = _parse_ts(cluster[0].get("first_ts") or cluster[0].get("last_ts") or "")
+                ts1 = _parse_ts(cluster[-1].get("last_ts") or cluster[-1].get("first_ts") or "")
+                rule_ids = sorted({c.get("rule_id") for c in cluster if c.get("rule_id")})
+                incidents.append({
+                    "host": host,
+                    "rule_ids": rule_ids,
+                    "alert_count": len(cluster),
+                    "dwell_minutes": round((ts1 - ts0).total_seconds() / 60, 1),
+                    "first_ts": cluster[0].get("first_ts"),
+                    "last_ts": cluster[-1].get("last_ts"),
+                    "multi_stage": len(rule_ids) > 1,
+                })
+
+            for a in host_alerts:
+                if not cluster:
+                    cluster = [a]
+                    continue
+                prev = _parse_ts(cluster[-1].get("last_ts") or cluster[-1].get("first_ts") or "")
+                cur = _parse_ts(a.get("first_ts") or a.get("last_ts") or "")
+                if (cur - prev).total_seconds() <= window:
+                    cluster.append(a)
+                else:
+                    flush()
+                    cluster = [a]
+            flush()
+        # Multi-stage incidents first, then by alert count.
+        incidents.sort(key=lambda i: (i["multi_stage"], i["alert_count"]), reverse=True)
+        return incidents

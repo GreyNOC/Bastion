@@ -39,6 +39,23 @@ class ThreatScore(BastionModel):
 
 
 @dataclasses.dataclass
+class ThreatForecast(BastionModel):
+    """A time-to-exploitation forecast — the predictive layer of the engine.
+
+    ``exploit_probability`` is the modeled chance of exploitation within the
+    horizon; ``horizon_days_p50``/``p90`` are the predicted time-to-exploit
+    (0 when already exploited). ``window`` is a plain label for triage.
+    """
+
+    exploit_probability: float = 0.0
+    horizon_days_p50: Optional[int] = None
+    horizon_days_p90: Optional[int] = None
+    confidence: float = 0.0
+    window: str = "unknown"                 # already_exploited|imminent|near_term|medium_term|low
+    drivers: List[str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
 class BastionThreat(BastionModel):
     """A single threat the forecast ranks and explains."""
 
@@ -65,6 +82,13 @@ class BastionThreat(BastionModel):
 
     sectors: List[str] = dataclasses.field(default_factory=list)
     remediation: str = ""
+
+    # Predictive + enrichment layers (full-capacity forecast).
+    forecast: Optional[ThreatForecast] = None
+    ai_abuse: List[Dict[str, str]] = dataclasses.field(default_factory=list)  # AI-abuse categories
+    pqc_risk: Optional[Dict[str, Any]] = None                                 # HNDL / PQC assessment
+    iocs: List[Dict[str, str]] = dataclasses.field(default_factory=list)      # indicators of compromise
+
     # A generated detection idea stays a DRAFT until validated in the Range.
     draft_detection: Optional[str] = None
     detection_status: ValidationStatus = ValidationStatus.DRAFT

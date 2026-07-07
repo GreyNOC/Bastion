@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Correlation — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Correlation</h1>
+  <div class="sub">Cross-engine view — threats, detections, playbooks, and assets linked by shared entities</div></div>
+</div>
+
+<div class="banner {{ 'warn' if result.coverage_gaps else 'ok' }}">{{ result.summary }}</div>
+
+<div class="cards">
+  <div class="card accent"><div class="k">Clusters</div><div class="v">{{ result.cluster_count }}</div></div>
+  <div class="card accent"><div class="k">Cross-engine</div><div class="v">{{ result.cross_engine_clusters }}</div></div>
+  <div class="card"><div class="k">Coverage gaps</div><div class="v" style="color:{{ 'var(--warn)' if result.coverage_gaps else 'var(--ok)' }}">{{ result.coverage_gaps }}</div></div>
+</div>
+
+<div class="panel">
+  <h2>Correlation clusters</h2>
+  {% if result.clusters %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Severity</th><th>Entity</th><th>Threats</th><th>Detections</th><th>Playbooks</th><th>Assets</th><th>What it means</th></tr></thead>
+    <tbody>
+    {% for c in result.clusters %}
+      <tr>
+        <td><span class="badge {{ c.severity }}">{{ c.severity }}</span>{% if c.coverage_gap %} <span class="badge medium">gap</span>{% endif %}</td>
+        <td><b>{{ c.label }}</b><div class="small muted">{{ c.entity_type }}</div></td>
+        <td class="mono small">{{ c.threats|length }}</td>
+        <td class="mono small">{{ c.detections|length }}</td>
+        <td class="mono small">{{ c.playbooks|length }}</td>
+        <td class="mono small">{{ c.assets|length }}</td>
+        <td class="small">{{ c.narrative }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No correlations yet. Run the Threat Forecast, Detection Validation, and Assets modules
+  to populate the console, then the spine links them by ATT&amp;CK technique and host.</p>
+  {% endif %}
+</div>
+{% endblock %}

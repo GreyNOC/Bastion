@@ -33,7 +33,7 @@ from .finding import BastionFinding
 from .identity import BastionIdentity
 from .playbook import BastionPlaybook, PlaybookStep
 from .report import BastionReport, ReportSummary
-from .threat import BastionThreat, ThreatScore
+from .threat import BastionThreat, ThreatForecast, ThreatScore
 
 __all__ = [
     # base helpers
@@ -63,6 +63,7 @@ __all__ = [
     "BastionReport",
     "ReportSummary",
     "BastionThreat",
+    "ThreatForecast",
     "ThreatScore",
     "BastionValidationResult",
 ]

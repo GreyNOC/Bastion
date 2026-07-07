@@ -23,11 +23,12 @@ Bastion unifies seven modules behind one console and one shared data model:
 
 | Module | What it gives a defender | Source lineage |
 | --- | --- | --- |
-| **Threat Forecast** | CVE / CISA KEV / EPSS intel ranked by urgency, exploit likelihood, exposure, ransomware relevance, and remediation priority — with named drivers. | Detector-Engine |
-| **Identity Blast Radius** | Scans repos/projects for API keys, service accounts, CI/CD tokens, OAuth apps, webhooks, model gateways, MCP servers, and AI agents — **secrets always masked**. | Non-Human-Identity-Engine |
-| **Detection Validation Range** | Replays synthetic telemetry against detection rules, compares expected vs actual alerts, and reports whether a detection is ready, needs tuning, or should be deprecated. | DMZ + Detections |
+| **Threat Forecast** | CVE / CISA KEV / EPSS intel ranked by urgency, with a real exploit-**timing** forecast (probability + horizon), ATT&CK technique inference, AI-abuse and post-quantum (HNDL) dimensions, and STIX / ATT&CK Navigator export. | Detector-Engine |
+| **Identity Blast Radius** | Scans repos/projects for API keys, service accounts, CI/CD tokens, OAuth apps, webhooks, model gateways, MCP servers (structural), k8s Secrets, and AI agents — **secrets always masked** — with OWASP NHI mappings and cross-identity **risk paths**. | Non-Human-Identity-Engine |
+| **Detection Validation Range** | Replays synthetic telemetry, plus a rule **linter**, an ATT&CK **coverage map** with gaps, and multi-stage **incident correlation**. | DMZ + Detections |
 | **Operator Playbooks** | 30 defensive playbooks (identity attacks, ransomware, lateral movement, AI-agent abuse, post-quantum readiness, E2EE) with response checklists. | Playbooks |
 | **Assets & Exposure** | Passive review of local listening services with plain-English explanations and safe, local-only remediation guidance. | HomeGuard + Port-Manager |
+| **Correlation** | Cross-engine spine linking threats ↔ detections ↔ playbooks ↔ assets by ATT&CK technique and host; flags **forecasted techniques with no validated detection** (coverage gaps). | (new) |
 | **Report & Evidence Center** | Evidence-backed reports in HTML, Markdown, JSON, CSV, SARIF, PDF, and integrity-checked evidence bundles. | (new) |
 | **Local AI Assistant** *(optional, off by default)* | Explains findings, summarizes reports, drafts tickets — locally, no cloud, no command execution. | GreyIQ (defensive subset) |
 
@@ -75,10 +76,18 @@ bastion assets scan-local --passive
 bastion playbooks list
 bastion playbooks show 18-ransomware
 
-# 7. Build a consolidated, evidence-backed report
-bastion report build --out ./out
+# 7. Measure detection coverage and lint the rule pack
+bastion detections coverage
+bastion detections lint
 
-# 8. Open the local dashboard (loopback only)
+# 8. Correlate across engines — see forecasted techniques with NO detection
+bastion correlate
+
+# 9. Export threat intel (STIX 2.1 / ATT&CK Navigator layer)
+bastion forecast export --format navigator --out ./out/layer.json
+
+# 10. Build a consolidated, evidence-backed report; open the dashboard
+bastion report build --out ./out
 bastion serve --host 127.0.0.1 --port 8788
 ```
 

@@ -100,6 +100,11 @@ def create_app(bastion: BastionApp) -> Flask:
         return render_template("assets.html", active_page="assets",
                                assets=bastion.db.list_assets(limit=500), **ctx())
 
+    @app.get("/correlation")
+    def correlation():
+        return render_template("correlation.html", active_page="correlation",
+                               result=bastion.correlate(), **ctx())
+
     @app.get("/reports")
     def reports():
         return render_template("reports.html", active_page="reports",

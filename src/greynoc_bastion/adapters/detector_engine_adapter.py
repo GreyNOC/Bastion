@@ -19,11 +19,15 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..knowledge.ai_abuse import classify_ai_abuse
+from ..knowledge.attack import infer_techniques
+from ..knowledge.postquantum import hndl_exposure
 from ..schemas import (
     BastionThreat,
     Confidence,
     Severity,
     ThreatCategory,
+    ThreatForecast,
     ThreatScore,
     ValidationStatus,
 )
@@ -224,6 +228,67 @@ class DetectorEngineAdapter(BaseAdapter):
             return Severity.LOW
         return Severity.INFO
 
+    def forecast_exploit_timing(self, score: ThreatScore, *, kev: bool) -> ThreatForecast:
+        """Model time-to-exploitation from the scored signals (hazard-style).
+
+        Deterministic and explainable: KEV means already-exploited (horizon 0);
+        otherwise a "pressure" blend of exploit likelihood, exposure, CVSS, and
+        remediation priority compresses the predicted horizon and raises the
+        exploitation probability.
+        """
+        drivers: List[str] = []
+        if kev:
+            return ThreatForecast(
+                exploit_probability=0.97,
+                horizon_days_p50=0,
+                horizon_days_p90=0,
+                confidence=0.9,
+                window="already_exploited",
+                drivers=["On CISA KEV — exploitation already observed in the wild"],
+            )
+
+        # Pressure in [0,1]: what accelerates exploitation.
+        pressure = min(1.0, (
+            0.45 * score.exploit_likelihood
+            + 0.25 * score.public_exposure
+            + 0.20 * (score.exploit_likelihood if score.exploit_likelihood else 0.0)
+            + 0.10 * score.remediation_priority
+        ))
+        # A ransomware-relevant, exposed CVE gets extra pressure.
+        if score.ransomware_relevance >= 1.0:
+            pressure = min(1.0, pressure + 0.15)
+            drivers.append("Known ransomware use accelerates weaponization")
+        if score.exploit_likelihood >= 0.5:
+            drivers.append(f"High modeled exploit likelihood ({score.exploit_likelihood:.0%})")
+        if score.public_exposure >= 0.8:
+            drivers.append("Internet-facing / edge product class")
+
+        # Horizon compresses with pressure; probability rises with it.
+        p50 = int(round((1.0 - pressure) * 90))
+        p90 = int(round((1.0 - pressure) * 180))
+        exploit_probability = round(min(0.95, 0.15 + 0.8 * pressure), 3)
+        confidence = round(min(0.85, 0.35 + 0.5 * score.evidence_strength), 3)
+
+        if p50 <= 7:
+            window = "imminent"
+        elif p50 <= 30:
+            window = "near_term"
+        elif p50 <= 90:
+            window = "medium_term"
+        else:
+            window = "low"
+        if not drivers:
+            drivers.append(f"Blended exploitation pressure {pressure:.0%}")
+
+        return ThreatForecast(
+            exploit_probability=exploit_probability,
+            horizon_days_p50=p50,
+            horizon_days_p90=p90,
+            confidence=confidence,
+            window=window,
+            drivers=drivers,
+        )
+
     def build_threats(
         self,
         cves: Dict[str, Dict[str, Any]],
@@ -257,6 +322,26 @@ class DetectorEngineAdapter(BaseAdapter):
             if cve.get("cvss"):
                 drivers.append(f"CVSS base score {cve['cvss']}")
 
+            # --- enrichment layers (full capacity) ---
+            full_text = f"{cve.get('description', '')} {(kev_rec or {}).get('name', '')}"
+            techniques = infer_techniques(full_text)
+            ai_abuse = classify_ai_abuse(full_text)
+            pqc = hndl_exposure(full_text)
+            forecast = self.forecast_exploit_timing(score, kev=bool(kev_rec))
+
+            if ai_abuse:
+                category = ThreatCategory.AI_ABUSE
+                drivers.append("AI/LLM abuse category: " + ", ".join(a["label"] for a in ai_abuse))
+            if pqc:
+                drivers.append("Post-quantum exposure: " + ", ".join(pqc["vulnerable_primitives"]))
+            if forecast.window == "already_exploited":
+                drivers.insert(0, "Forecast: exploitation already observed (KEV)")
+            elif forecast.horizon_days_p50 is not None:
+                drivers.append(
+                    f"Forecast: ~{forecast.horizon_days_p50}d to likely exploitation "
+                    f"(p={forecast.exploit_probability:.0%}, {forecast.window.replace('_', ' ')})"
+                )
+
             title = (kev_rec or {}).get("name") or f"{cid}: {(cve.get('description') or '')[:80]}"
             threat = BastionThreat(
                 threat_id=cid,
@@ -265,6 +350,7 @@ class DetectorEngineAdapter(BaseAdapter):
                 summary=cve.get("description", ""),
                 cve_ids=[cid],
                 cwe_ids=cve.get("cwes", []),
+                attack_techniques=techniques,
                 affected_products=cve.get("products", []),
                 severity=sev,
                 confidence=Confidence.HIGH if kev_rec else Confidence.MEDIUM,
@@ -276,6 +362,9 @@ class DetectorEngineAdapter(BaseAdapter):
                 sectors=sectors or [],
                 remediation=(kev_rec or {}).get("required_action", "")
                 or "Prioritize patching per vendor guidance; restrict exposure of affected service.",
+                forecast=forecast,
+                ai_abuse=ai_abuse,
+                pqc_risk=pqc,
                 draft_detection=(
                     f"DRAFT: alert on exploitation indicators for {cid} "
                     f"({', '.join(cve.get('products', []) or ['affected product'])})."
@@ -285,7 +374,13 @@ class DetectorEngineAdapter(BaseAdapter):
                 metadata={"drivers": drivers},
             )
             threats.append(threat)
-        threats.sort(key=lambda t: t.score.urgency, reverse=True)
+        # Rank by urgency, then by forecast probability, then severity.
+        threats.sort(
+            key=lambda t: (t.score.urgency,
+                           t.forecast.exploit_probability if t.forecast else 0.0,
+                           t.severity.rank),
+            reverse=True,
+        )
         return threats
 
     # --- high-level entry points --------------------------------------------

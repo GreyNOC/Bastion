@@ -75,7 +75,21 @@ class ThreatForecastService:
                 ),
                 ref_type="threat",
                 ref_id=t.threat_id,
-                tags=[t.category.value] + (["kev"] if t.kev else []) + (["ransomware"] if t.ransomware_used else []),
-                metadata={"urgency": t.score.urgency, "epss": t.epss, "cvss": t.cvss},
+                tags=(
+                    [t.category.value]
+                    + (["kev"] if t.kev else [])
+                    + (["ransomware"] if t.ransomware_used else [])
+                    + list(t.attack_techniques)
+                    + ([f"forecast:{t.forecast.window}"] if t.forecast else [])
+                    + [f"ai-abuse:{a['id']}" for a in t.ai_abuse]
+                    + (["pqc-hndl"] if t.pqc_risk else [])
+                ),
+                metadata={
+                    "urgency": t.score.urgency, "epss": t.epss, "cvss": t.cvss,
+                    "attack_techniques": t.attack_techniques,
+                    "forecast": t.forecast.to_dict() if t.forecast else None,
+                    "ai_abuse": t.ai_abuse,
+                    "pqc_risk": t.pqc_risk,
+                },
             ))
         return findings
