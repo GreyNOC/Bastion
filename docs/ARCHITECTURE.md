@@ -1,5 +1,8 @@
 # Architecture
 
+> For per-engine data-flow diagrams (Mermaid), see
+> [`explanations/`](explanations/).
+
 GreyNOC Bastion is a modular, local-first Python application. It is organized in
 four layers, with a single shared schema running through all of them and a
 concentrated safety layer that every other layer depends on.
