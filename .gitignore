@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Bastion runtime data — never commit operational data
+.env
+*.db
+*.sqlite3
+bastion-home/
+reports-out/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
