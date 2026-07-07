@@ -1,0 +1,21 @@
+{
+  "id": "GNOC-PRIV-001",
+  "name": "Sudo privilege escalation to shell",
+  "description": "Flags synthetic sudo escalation into an interactive shell.",
+  "severity": "high",
+  "data_source": "linux",
+  "event_type": "process_event",
+  "match": {
+    "message": {
+      "op": "regex",
+      "value": "(?i)sudo\\s+(su|-i|bash|sh)\\b"
+    }
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": [
+    "TA0004",
+    "T1548.003"
+  ],
+  "runbook": "runbooks/sudo-escalation.md"
+}

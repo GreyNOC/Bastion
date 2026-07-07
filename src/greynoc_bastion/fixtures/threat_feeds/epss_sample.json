@@ -1,0 +1,29 @@
+{
+  "status": "OK",
+  "status-code": 200,
+  "version": "1.0",
+  "access": "public",
+  "total": 3,
+  "offset": 0,
+  "limit": 100,
+  "data": [
+    {
+      "cve": "CVE-2026-12345",
+      "epss": "0.87421",
+      "percentile": "0.99812",
+      "date": "2026-05-17"
+    },
+    {
+      "cve": "CVE-2025-99999",
+      "epss": "0.42018",
+      "percentile": "0.94100",
+      "date": "2026-05-17"
+    },
+    {
+      "cve": "CVE-2024-12121",
+      "epss": "0.01403",
+      "percentile": "0.38500",
+      "date": "2026-05-17"
+    }
+  ]
+}

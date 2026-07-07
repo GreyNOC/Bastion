@@ -1,0 +1,33 @@
+{
+  "rule_id": "GNOC-EXFIL-001",
+  "true_positive": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "network_event",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "outbound transfer to 203.0.113.10",
+      "fields": {
+        "direction": "outbound",
+        "bytes_out": 120000000
+      }
+    }
+  ],
+  "true_negative": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "network_event",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "outbound transfer to 203.0.113.10",
+      "fields": {
+        "direction": "outbound",
+        "bytes_out": 2048
+      }
+    }
+  ]
+}

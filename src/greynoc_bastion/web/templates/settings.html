@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Settings — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Settings</h1>
+  <div class="sub">Read-only view of the resolved configuration · source: {{ config.source }}</div></div>
+</div>
+
+<div class="banner ok small">
+  Settings are configured via environment variables or a <code>.env</code> file, then reloaded on restart.
+  This keeps configuration auditable and prevents the dashboard from silently loosening safety controls.
+</div>
+
+<div class="panel">
+  <h2>Network</h2>
+  <div class="status-grid">
+    <div class="status-row"><span class="lab">API host</span><span class="val">{{ config.host }}</span></div>
+    <div class="status-row"><span class="lab">API port</span><span class="val">{{ config.port }}</span></div>
+    <div class="status-row"><span class="lab">Loopback only</span><span class="val {{ 'state-good' if config.loopback_only else 'state-on' }}">{{ config.loopback_only }}</span></div>
+    <div class="status-row"><span class="lab">Live fetch</span><span class="val {{ 'state-on' if config.live_fetch else 'state-off' }}">{{ config.live_fetch }}</span></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Live fetch allowlist</h2>
+  {% for h in config.fetch_allowlist %}<span class="pill">{{ h }}</span> {% endfor %}
+  <p class="small muted">Consulted only when live fetch is enabled. Fetches are HTTPS-only, size- and timeout-capped,
+  redirect-validated, and always refuse private/loopback hosts.</p>
+</div>
+
+<div class="panel">
+  <h2>AI assistant</h2>
+  <div class="status-grid">
+    <div class="status-row"><span class="lab">Assistant</span><span class="val {{ 'state-on' if config.ai_assistant else 'state-off' }}">{{ 'enabled' if config.ai_assistant else 'disabled' }}</span></div>
+    <div class="status-row"><span class="lab">Command execution</span><span class="val {{ 'state-on' if config.ai_command_execution else 'state-off' }}">{{ 'enabled' if config.ai_command_execution else 'disabled' }}</span></div>
+    <div class="status-row"><span class="lab">Cloud allowed</span><span class="val {{ 'state-on' if config.ai_allow_cloud else 'state-off' }}">{{ config.ai_allow_cloud }}</span></div>
+    <div class="status-row"><span class="lab">Endpoint set</span><span class="val">{{ 'yes' if config.ai_endpoint else 'no' }}</span></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Data</h2>
+  <div class="status-grid">
+    <div class="status-row"><span class="lab">Home</span><span class="val mono small">{{ config.home }}</span></div>
+    <div class="status-row"><span class="lab">Database</span><span class="val mono small">{{ config.db_path }}</span></div>
+    <div class="status-row"><span class="lab">Report dir</span><span class="val mono small">{{ config.report_dir }}</span></div>
+    <div class="status-row"><span class="lab">Secret storage</span><span class="val state-good">masked-only</span></div>
+  </div>
+</div>
+{% endblock %}

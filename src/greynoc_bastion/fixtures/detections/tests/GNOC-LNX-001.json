@@ -1,0 +1,31 @@
+{
+  "rule_id": "GNOC-LNX-001",
+  "true_positive": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "process_event",
+      "user": "root",
+      "ip": "10.10.1.50",
+      "message": "read of /etc/shadow",
+      "fields": {
+        "process": "cat"
+      }
+    }
+  ],
+  "true_negative": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "process_event",
+      "user": "root",
+      "ip": "10.10.1.50",
+      "message": "read of /etc/hosts",
+      "fields": {
+        "process": "cat"
+      }
+    }
+  ]
+}

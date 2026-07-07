@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bastion-dashboard",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "greynoc_bastion.cli", "serve", "--host", "127.0.0.1", "--port", "8788"],
+      "port": 8788
+    }
+  ]
+}

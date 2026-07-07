@@ -1,0 +1,18 @@
+{
+  "title": "CISA Known Exploited Vulnerabilities Catalog",
+  "vulnerabilities": [
+    {
+      "cveID": "CVE-2026-12345",
+      "vendorProject": "ExampleCorp",
+      "product": "Gateway",
+      "vulnerabilityName": "ExampleCorp Gateway Command Injection Vulnerability",
+      "dateAdded": "2026-05-04",
+      "shortDescription": "ExampleCorp Gateway contains a command injection vulnerability.",
+      "requiredAction": "Apply mitigations per vendor instructions or discontinue use if mitigations are unavailable.",
+      "dueDate": "2026-05-25",
+      "knownRansomwareCampaignUse": "Known",
+      "notes": "Used for offline test coverage only."
+    }
+  ]
+}
+

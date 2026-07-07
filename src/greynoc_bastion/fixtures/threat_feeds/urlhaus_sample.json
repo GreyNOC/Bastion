@@ -1,0 +1,19 @@
+{
+  "query_status": "ok",
+  "urls": [
+    {
+      "url": "http://evil-domain.example/payload.bin",
+      "url_status": "online",
+      "threat": "malware_download",
+      "tags": ["LockBit", "loader"],
+      "date_added": "2026-05-15 09:00:00"
+    },
+    {
+      "url": "http://203.0.113.42/c2/beacon",
+      "url_status": "online",
+      "threat": "c2",
+      "tags": ["Cobalt Strike"],
+      "date_added": "2026-05-16 03:14:00"
+    }
+  ]
+}

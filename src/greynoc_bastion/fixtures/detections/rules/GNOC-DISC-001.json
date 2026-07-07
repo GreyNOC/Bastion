@@ -1,0 +1,21 @@
+{
+  "id": "GNOC-DISC-001",
+  "name": "Local account discovery",
+  "description": "Flags synthetic local account enumeration.",
+  "severity": "medium",
+  "data_source": "linux",
+  "event_type": "process_event",
+  "match": {
+    "message": {
+      "op": "regex",
+      "value": "(?i)(getent\\s+passwd|cat\\s+/etc/passwd|\\bnet\\s+user\\b)"
+    }
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": [
+    "TA0007",
+    "T1087.001"
+  ],
+  "runbook": "runbooks/account-discovery.md"
+}

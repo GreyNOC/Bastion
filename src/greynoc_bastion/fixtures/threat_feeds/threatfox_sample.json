@@ -1,0 +1,29 @@
+{
+  "query_status": "ok",
+  "data": [
+    {
+      "ioc": "203.0.113.42",
+      "ioc_type": "ip:port",
+      "threat_type": "botnet_cc",
+      "malware": "Cobalt Strike",
+      "malware_printable": "Cobalt Strike",
+      "first_seen": "2026-05-15 12:14:00",
+      "confidence_level": 90
+    },
+    {
+      "ioc": "evil-domain.example",
+      "ioc_type": "domain",
+      "threat_type": "payload_delivery",
+      "malware": "LockBit",
+      "first_seen": "2026-05-16 08:30:00",
+      "confidence_level": 85
+    },
+    {
+      "ioc": "abcd1234deadbeefabcd1234deadbeefabcd1234",
+      "ioc_type": "sha1_hash",
+      "threat_type": "payload",
+      "malware": "AsyncRAT",
+      "first_seen": "2026-05-16 22:01:00"
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "rule_id": "GNOC-AUTH-001",
+  "true_positive": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_failed",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "failed login for alice",
+      "fields": {
+        "service": "ssh"
+      }
+    },
+    {
+      "timestamp": "2026-05-20T12:01:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_failed",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "failed login for alice",
+      "fields": {
+        "service": "ssh"
+      }
+    },
+    {
+      "timestamp": "2026-05-20T12:02:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_failed",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "failed login for alice",
+      "fields": {
+        "service": "ssh"
+      }
+    },
+    {
+      "timestamp": "2026-05-20T12:03:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_failed",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "failed login for alice",
+      "fields": {
+        "service": "ssh"
+      }
+    },
+    {
+      "timestamp": "2026-05-20T12:04:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_failed",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "failed login for alice",
+      "fields": {
+        "service": "ssh"
+      }
+    }
+  ],
+  "true_negative": [
+    {
+      "timestamp": "2026-05-20T12:30:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_failed",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "failed login for alice",
+      "fields": {
+        "service": "ssh"
+      }
+    },
+    {
+      "timestamp": "2026-05-20T12:31:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_failed",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "failed login for alice",
+      "fields": {
+        "service": "ssh"
+      }
+    },
+    {
+      "timestamp": "2026-05-20T12:32:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_failed",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "failed login for alice",
+      "fields": {
+        "service": "ssh"
+      }
+    }
+  ]
+}

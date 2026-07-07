@@ -1,0 +1,20 @@
+{
+  "id": "adversary-chain-sim",
+  "name": "Adversary chain regression pack",
+  "team": "purple",
+  "description": "Replay a synthetic multi-stage host compromise and confirm the full detection set fires.",
+  "telemetry_file": "telemetry/fixtures/adversary-chain.json",
+  "expected_rules": [
+    "GNOC-C2-001",
+    "GNOC-COLL-001",
+    "GNOC-DISC-001",
+    "GNOC-EVAS-001",
+    "GNOC-EXEC-001",
+    "GNOC-EXFIL-001",
+    "GNOC-IMP-001",
+    "GNOC-LAT-001",
+    "GNOC-PERS-001",
+    "GNOC-PRIV-001"
+  ],
+  "notes": "Synthetic host-tradecraft telemetry only. No real commands are executed."
+}

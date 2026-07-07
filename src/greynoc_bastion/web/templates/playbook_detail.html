@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ playbook.name }} — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>{{ playbook.name }}</h1>
+  <div class="sub">{{ playbook.slug }} · <span class="pill">{{ playbook.category }}</span>
+    <span class="badge {{ playbook.severity.value }}">{{ playbook.severity.value }}</span></div></div>
+  <a class="btn ghost" href="{{ url_for('playbooks') }}">← All playbooks</a>
+</div>
+
+{% if playbook.attack_techniques %}
+<div class="panel">
+  <h2>MITRE ATT&CK</h2>
+  {% for t in playbook.attack_techniques %}<span class="pill">{{ t }}</span> {% endfor %}
+</div>
+{% endif %}
+
+{% if playbook.response_steps %}
+<div class="panel">
+  <h2>Response checklist</h2>
+  <div class="table-scroll"><table>
+    <thead><tr><th>#</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for s in playbook.response_steps %}
+      <tr><td class="mono">{{ s.order }}</td><td>{{ s.detail }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+
+{% if playbook.related_detections %}
+<div class="panel">
+  <h2>Related draft detections</h2>
+  {% for d in playbook.related_detections %}<div>• {{ d }} <span class="badge draft">draft</span></div>{% endfor %}
+  <p class="small muted">These are drafts extracted from the playbook. Validate them in the Detection Range before use.</p>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Full doctrine</h2>
+  <div class="markdown">{{ playbook.body_markdown }}</div>
+</div>
+{% endblock %}

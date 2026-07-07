@@ -1,0 +1,27 @@
+{
+  "rule_id": "GNOC-IMP-001",
+  "true_positive": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "file_event",
+      "user": "root",
+      "ip": "10.10.1.50",
+      "message": "mass rename to .encrypted across 312 files",
+      "fields": {}
+    }
+  ],
+  "true_negative": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "file_event",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "user saved quarterly_report.docx",
+      "fields": {}
+    }
+  ]
+}

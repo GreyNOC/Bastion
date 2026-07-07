@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Operator Playbooks — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Operator Playbooks</h1>
+  <div class="sub">Defensive doctrine and response checklists · {{ playbooks|length }} playbooks</div></div>
+</div>
+
+<div class="panel">
+  <h2>Playbook library</h2>
+  <div class="table-scroll"><table>
+    <thead><tr><th>Playbook</th><th>Category</th><th>Severity</th><th>MITRE</th><th>Steps</th></tr></thead>
+    <tbody>
+    {% for p in playbooks %}
+      <tr>
+        <td><a href="{{ url_for('playbook_detail', slug=p.slug) }}"><b>{{ p.name }}</b></a>
+            <div class="small muted mono">{{ p.slug }}</div></td>
+        <td><span class="pill">{{ p.category }}</span></td>
+        <td><span class="badge {{ p.severity.value }}">{{ p.severity.value }}</span></td>
+        <td class="small mono">{{ p.attack_techniques[:4]|join(', ') }}</td>
+        <td class="mono">{{ p.response_steps|length }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

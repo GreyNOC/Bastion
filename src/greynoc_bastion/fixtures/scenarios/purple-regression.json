@@ -1,0 +1,9 @@
+{
+  "id": "purple-regression",
+  "name": "Purple team regression pack",
+  "team": "purple",
+  "description": "Replay a small mixed telemetry set and confirm multiple detections fire together.",
+  "telemetry_file": "telemetry/fixtures/purple-regression.json",
+  "expected_rules": ["GNOC-AUTH-001", "GNOC-LNX-001"],
+  "notes": "Used as a guardrail when detection rules are edited."
+}

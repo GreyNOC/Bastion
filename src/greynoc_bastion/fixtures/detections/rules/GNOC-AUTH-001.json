@@ -1,0 +1,15 @@
+{
+  "id": "GNOC-AUTH-001",
+  "name": "Repeated failed login attempts",
+  "description": "Flags repeated failed authentication events for one user on one host in synthetic telemetry.",
+  "severity": "medium",
+  "data_source": "auth",
+  "event_type": "auth_failed",
+  "match": {
+    "message": "failed login"
+  },
+  "threshold": 5,
+  "window_minutes": 10,
+  "mitre": ["TA0006", "T1110"],
+  "runbook": "runbooks/auth-bruteforce.md"
+}

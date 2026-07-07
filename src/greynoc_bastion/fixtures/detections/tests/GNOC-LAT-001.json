@@ -1,0 +1,31 @@
+{
+  "rule_id": "GNOC-LAT-001",
+  "true_positive": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_success",
+      "user": "root",
+      "ip": "10.10.1.50",
+      "message": "Accepted publickey for root from 10.10.1.55 port 22 ssh2",
+      "fields": {
+        "service": "ssh"
+      }
+    }
+  ],
+  "true_negative": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "auth_success",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "Accepted password for alice from 10.10.1.10 port 22 ssh2",
+      "fields": {
+        "service": "ssh"
+      }
+    }
+  ]
+}

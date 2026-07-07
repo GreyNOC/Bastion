@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Detection Validation — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Detection Validation Range</h1>
+  <div class="sub">Replay synthetic telemetry · compare expected vs actual alerts · drafts stay drafts until validated</div></div>
+</div>
+
+<div class="actions">
+  <form class="inline" method="post" action="{{ url_for('run_detections') }}">
+    <button class="btn">Validate full rule pack</button>
+  </form>
+</div>
+
+<div class="cards">
+  <div class="card"><div class="k">Validated</div><div class="v" style="color:var(--ok)">{{ coverage.validated }}</div></div>
+  <div class="card"><div class="k">Needs tuning</div><div class="v" style="color:var(--warn)">{{ coverage.by_status.get('needs_tuning', 0) }}</div></div>
+  <div class="card"><div class="k">Drafts</div><div class="v">{{ coverage.drafts }}</div></div>
+  <div class="card"><div class="k">ATT&CK techniques</div><div class="v">{{ coverage.attack_techniques_covered|length }}</div></div>
+</div>
+
+<div class="panel">
+  <h2>Validation results <span class="pill">{{ results|length }}</span></h2>
+  {% if results %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Result</th><th>Detection</th><th>Verdict</th><th>Expected</th><th>Actual</th><th>TP/FP/FN</th><th>Notes</th></tr></thead>
+    <tbody>
+    {% for r in results %}
+      <tr>
+        <td><span class="badge {{ 'pass' if r.passed else 'failed' }}">{{ 'pass' if r.passed else 'fail' }}</span></td>
+        <td class="mono">{{ r.detection_id }}</td>
+        <td><span class="badge {{ r.verdict.value }}">{{ r.verdict.value }}</span></td>
+        <td class="mono">{{ r.expected_alerts }}</td>
+        <td class="mono">{{ r.actual_alerts }}</td>
+        <td class="mono">{{ r.true_positives }}/{{ r.false_positives }}/{{ r.false_negatives }}</td>
+        <td class="small muted">{{ r.notes }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No validation results yet. Click <b>Validate full rule pack</b> to replay every rule against
+  its synthetic true-positive / true-negative telemetry.</p>
+  {% endif %}
+</div>
+{% endblock %}

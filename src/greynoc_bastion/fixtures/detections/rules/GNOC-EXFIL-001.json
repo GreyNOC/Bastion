@@ -1,0 +1,22 @@
+{
+  "id": "GNOC-EXFIL-001",
+  "name": "Large outbound transfer",
+  "description": "Flags a synthetic large outbound data transfer.",
+  "severity": "high",
+  "data_source": "network",
+  "event_type": "network_event",
+  "match": {
+    "direction": "outbound",
+    "bytes_out": {
+      "op": "gte",
+      "value": 50000000
+    }
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": [
+    "TA0010",
+    "T1048"
+  ],
+  "runbook": "runbooks/large-egress.md"
+}

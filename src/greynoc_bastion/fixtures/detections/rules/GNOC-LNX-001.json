@@ -1,0 +1,15 @@
+{
+  "id": "GNOC-LNX-001",
+  "name": "Sensitive file access check",
+  "description": "Flags synthetic Linux process telemetry that references /etc/shadow.",
+  "severity": "high",
+  "data_source": "linux",
+  "event_type": "process_event",
+  "match": {
+    "message": "/etc/shadow"
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": ["TA0006", "T1003"],
+  "runbook": "runbooks/linux-sensitive-file.md"
+}
