@@ -8,7 +8,6 @@ Full secrets never enter this pipeline — only masked previews and fingerprints
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
 
 from ..adapters.nhi_adapter import NhiAdapter
 from ..db import Database
@@ -24,12 +23,12 @@ from ..utils.logging import get_logger
 
 
 class IdentityBlastRadiusService:
-    def __init__(self, db: Optional[Database] = None, adapter: Optional[NhiAdapter] = None):
+    def __init__(self, db: Database | None = None, adapter: NhiAdapter | None = None):
         self.db = db
         self.adapter = adapter or NhiAdapter()
         self.log = get_logger("identity_blast_radius")
 
-    def scan(self, path: Path, persist: bool = True) -> List[BastionIdentity]:
+    def scan(self, path: Path, persist: bool = True) -> list[BastionIdentity]:
         identities = self.adapter.scan_repo(Path(path))
         self.log.info("identity scan of %s found %d non-human identities", path, len(identities))
         if persist and self.db:
@@ -38,8 +37,8 @@ class IdentityBlastRadiusService:
             self.db.save_findings(self.to_findings(identities))
         return identities
 
-    def to_findings(self, identities: List[BastionIdentity]) -> List[BastionFinding]:
-        findings: List[BastionFinding] = []
+    def to_findings(self, identities: list[BastionIdentity]) -> list[BastionFinding]:
+        findings: list[BastionFinding] = []
         for i in identities:
             ev = [BastionEvidence(
                 kind=EvidenceKind.FILE_MATCH,

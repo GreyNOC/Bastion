@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, List
+from typing import Any
 
 from .base import BastionModel, new_correlation_id, utcnow_iso
 from .enums import ReportFormat, Severity
@@ -15,8 +15,8 @@ class ReportSummary(BastionModel):
     """Executive rollup computed from the findings in a report."""
 
     total_findings: int = 0
-    by_severity: Dict[str, int] = dataclasses.field(default_factory=dict)
-    by_category: Dict[str, int] = dataclasses.field(default_factory=dict)
+    by_severity: dict[str, int] = dataclasses.field(default_factory=dict)
+    by_category: dict[str, int] = dataclasses.field(default_factory=dict)
     highest_severity: Severity = Severity.INFO
     headline: str = ""
 
@@ -33,19 +33,19 @@ class BastionReport(BastionModel):
     title: str = "GreyNOC Bastion Report"
     generated_at: str = dataclasses.field(default_factory=utcnow_iso)
     generated_by: str = "greynoc-bastion"
-    modules: List[str] = dataclasses.field(default_factory=list)  # which modules contributed
+    modules: list[str] = dataclasses.field(default_factory=list)  # which modules contributed
 
     summary: ReportSummary = dataclasses.field(default_factory=ReportSummary)
-    findings: List[BastionFinding] = dataclasses.field(default_factory=list)
+    findings: list[BastionFinding] = dataclasses.field(default_factory=list)
 
     # Formats actually written to disk in this run.
-    formats: List[ReportFormat] = dataclasses.field(default_factory=list)
-    output_paths: Dict[str, str] = dataclasses.field(default_factory=dict)  # format -> path
-    metadata: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    formats: list[ReportFormat] = dataclasses.field(default_factory=list)
+    output_paths: dict[str, str] = dataclasses.field(default_factory=dict)  # format -> path
+    metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
 
-    def recompute_summary(self) -> "BastionReport":
-        by_sev: Dict[str, int] = {}
-        by_cat: Dict[str, int] = {}
+    def recompute_summary(self) -> BastionReport:
+        by_sev: dict[str, int] = {}
+        by_cat: dict[str, int] = {}
         highest = Severity.INFO
         for f in self.findings:
             by_sev[f.severity.value] = by_sev.get(f.severity.value, 0) + 1

@@ -9,14 +9,14 @@ imported, and no offensive code is pulled in.
 from __future__ import annotations
 
 from .base import AdapterResult, BaseAdapter
-from .detector_engine_adapter import DetectorEngineAdapter
-from .nhi_adapter import NhiAdapter
-from .dmz_adapter import DmzAdapter
-from .playbooks_adapter import PlaybooksAdapter
-from .homeguard_adapter import HomeGuardAdapter
 from .detections_adapter import DetectionsAdapter
-from .port_manager_adapter import PortManagerAdapter
+from .detector_engine_adapter import DetectorEngineAdapter
+from .dmz_adapter import DmzAdapter
 from .greyiq_adapter import GreyIQAdapter, TrustAssessment
+from .homeguard_adapter import HomeGuardAdapter
+from .nhi_adapter import NhiAdapter
+from .playbooks_adapter import PlaybooksAdapter
+from .port_manager_adapter import PortManagerAdapter
 
 __all__ = [
     "AdapterResult",

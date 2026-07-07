@@ -11,9 +11,11 @@
 
 <div class="actions">
   <form class="inline" method="post" action="{{ url_for('run_seed') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn">Run demo across all modules</button>
   </form>
   <form class="inline" method="post" action="{{ url_for('run_doctor') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn ghost">Run doctor</button>
   </form>
   <a class="btn ghost" href="{{ url_for('reports') }}">Build report</a>

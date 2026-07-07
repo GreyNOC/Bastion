@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 # Patterns that identify high-confidence secret material. These are used both
 # to classify identities and to scrub free text (logs, notes, report bodies).
 # Order matters: more specific provider tokens first.
-_SECRET_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
+_SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("aws_access_key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github_token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
     ("slack_token", re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}\b")),
@@ -41,7 +41,7 @@ _REDACTION = "***REDACTED***"
 # numbers are spared) but NOT a digit (so all-letter tokens are still caught).
 # The length is bounded (32-256) so the lookahead stays linear-time — a scrub
 # call can never itself become a ReDoS.
-_SCRUB_EXTRA: list[tuple[str, "re.Pattern[str]"]] = [
+_SCRUB_EXTRA: list[tuple[str, re.Pattern[str]]] = [
     ("high_entropy_token", re.compile(
         r"\b(?=[A-Za-z0-9+/_\-]{32,256}\b)(?=[A-Za-z0-9+/_\-]*[A-Za-z])"
         r"[A-Za-z0-9+/_\-]{32,256}\b"
@@ -112,8 +112,8 @@ def scrub_text(text: str, *, replacement: str = _REDACTION) -> str:
     if not text:
         return text
     result = text
-    for name, pat in (_SECRET_PATTERNS + _SCRUB_EXTRA):
-        def _sub(m: "re.Match[str]") -> str:
+    for _name, pat in (_SECRET_PATTERNS + _SCRUB_EXTRA):
+        def _sub(m: re.Match[str]) -> str:
             if m.groups() and m.group(1):
                 # Replace only the captured secret, keep the label/operator.
                 return m.group(0).replace(m.group(1), replacement)

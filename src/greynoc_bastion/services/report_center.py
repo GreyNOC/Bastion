@@ -12,10 +12,9 @@ import csv
 import io
 import json
 from pathlib import Path
-from typing import Dict, List
 
 from ..safety.masking import scrub_text
-from ..schemas import BastionFinding, BastionReport, ReportFormat, Severity
+from ..schemas import BastionFinding, BastionReport, ReportFormat
 from ..utils.logging import get_logger
 
 _SEV_COLOR = {
@@ -51,12 +50,12 @@ class ReportCenter:
         raise ValueError(f"unsupported format: {fmt}")
 
     def write(self, report: BastionReport, out_dir: Path,
-              formats: List[ReportFormat]) -> Dict[str, str]:
+              formats: list[ReportFormat]) -> dict[str, str]:
         """Render and write each format to ``out_dir``. Returns format->path."""
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         report.recompute_summary()
-        written: Dict[str, str] = {}
+        written: dict[str, str] = {}
         ext = {
             ReportFormat.JSON: "json", ReportFormat.MARKDOWN: "md",
             ReportFormat.HTML: "html", ReportFormat.CSV: "csv",
@@ -113,7 +112,7 @@ class ReportCenter:
                   "validate drafts before acting._"]
         return scrub_text("\n".join(lines))
 
-    def _finding_markdown(self, f: BastionFinding) -> List[str]:
+    def _finding_markdown(self, f: BastionFinding) -> list[str]:
         out = [
             f"### [{f.severity.value.upper()}] {f.title}",
             "",
@@ -163,7 +162,7 @@ class ReportCenter:
         """SARIF 2.1.0 — one run, rules derived from finding titles."""
         sev_to_level = {"critical": "error", "high": "error", "medium": "warning",
                         "low": "note", "info": "note"}
-        rules: Dict[str, dict] = {}
+        rules: dict[str, dict] = {}
         results = []
         for f in report.findings:
             rule_id = f.ref_id or f.category.value + ":" + (f.title[:40] or "finding")
@@ -377,7 +376,7 @@ def _text_to_pdf(text: str) -> bytes:
     # Wrap + paginate.
     max_chars = 92
     lines_per_page = 58
-    raw_lines: List[str] = []
+    raw_lines: list[str] = []
     for line in text.replace("\t", "    ").split("\n"):
         line = "".join(ch if 32 <= ord(ch) < 127 else "?" for ch in line)
         if not line:
@@ -388,18 +387,18 @@ def _text_to_pdf(text: str) -> bytes:
             line = line[max_chars:]
         raw_lines.append(line)
 
-    pages: List[List[str]] = [raw_lines[i:i + lines_per_page]
+    pages: list[list[str]] = [raw_lines[i:i + lines_per_page]
                               for i in range(0, len(raw_lines), lines_per_page)] or [[""]]
 
-    objects: List[bytes] = []
+    objects: list[bytes] = []
 
     def add(obj: bytes) -> int:
         objects.append(obj)
         return len(objects)
 
     font_obj = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-    page_obj_ids: List[int] = []
-    content_obj_ids: List[int] = []
+    page_obj_ids: list[int] = []
+    content_obj_ids: list[int] = []
     for page in pages:
         stream_lines = ["BT", "/F1 10 Tf", "12 TL", "50 780 Td"]
         for ln in page:
@@ -413,7 +412,7 @@ def _text_to_pdf(text: str) -> bytes:
 
     pages_parent_id = len(objects) + len(pages) + 1  # reserve
     # Create page objects now that we know the parent id.
-    real_page_ids: List[int] = []
+    real_page_ids: list[int] = []
     for content_id in content_obj_ids:
         pid = add(
             b"<< /Type /Page /Parent %d 0 R /MediaBox [0 0 612 792] "

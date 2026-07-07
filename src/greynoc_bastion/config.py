@@ -13,7 +13,6 @@ from __future__ import annotations
 import dataclasses
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
 
 _TRUE = {"1", "true", "yes", "on", "y"}
 _FALSE = {"0", "false", "no", "off", "n", ""}
@@ -21,7 +20,7 @@ _FALSE = {"0", "false", "no", "off", "n", ""}
 DEFAULT_ALLOWLIST = ["www.cisa.gov", "services.nvd.nist.gov", "api.first.org"]
 
 
-def _parse_bool(value: Optional[str], default: bool) -> bool:
+def _parse_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     v = value.strip().lower()
@@ -32,9 +31,9 @@ def _parse_bool(value: Optional[str], default: bool) -> bool:
     return default
 
 
-def _parse_env_file(path: Path) -> Dict[str, str]:
+def _parse_env_file(path: Path) -> dict[str, str]:
     """Minimal ``.env`` parser: ``KEY=VALUE`` lines, ``#`` comments, quotes."""
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     if not path.is_file():
         return out
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -68,12 +67,18 @@ class BastionConfig:
 
     # Live fetch (threat feeds)
     live_fetch: bool = False
-    fetch_allowlist: List[str] = dataclasses.field(default_factory=lambda: list(DEFAULT_ALLOWLIST))
+    fetch_allowlist: list[str] = dataclasses.field(default_factory=lambda: list(DEFAULT_ALLOWLIST))
     fetch_max_bytes: int = 10 * 1024 * 1024
     fetch_timeout_seconds: int = 20
 
     # Active local checks (Assets & Exposure)
     active_checks: bool = False
+
+    # Dashboard remote access (fail-closed). Resolved from .env + environment so
+    # a token placed in .env is honored (not only a real environment variable).
+    allow_remote_dashboard: bool = False
+    dashboard_token: str = ""
+    web_secret: str = ""
 
     # AI assistant
     ai_assistant: bool = False
@@ -92,14 +97,14 @@ class BastionConfig:
     def loopback_only(self) -> bool:
         return self.host in {"127.0.0.1", "::1", "localhost"}
 
-    def ensure_dirs(self) -> "BastionConfig":
+    def ensure_dirs(self) -> BastionConfig:
         """Create the home and report directories if missing."""
         self.home.mkdir(parents=True, exist_ok=True)
         self.report_dir.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         return self
 
-    def public_dict(self) -> Dict[str, object]:
+    def public_dict(self) -> dict[str, object]:
         """A safe-to-display view (no secrets; there are none, but be explicit)."""
         return {
             "host": self.host,
@@ -113,6 +118,8 @@ class BastionConfig:
             "fetch_max_bytes": self.fetch_max_bytes,
             "fetch_timeout_seconds": self.fetch_timeout_seconds,
             "active_checks": self.active_checks,
+            "allow_remote_dashboard": self.allow_remote_dashboard,
+            "dashboard_token_set": bool(self.dashboard_token),  # never expose the value
             "ai_assistant": self.ai_assistant,
             "ai_command_execution": self.ai_command_execution,
             "ai_endpoint_set": bool(self.ai_endpoint),
@@ -130,8 +137,8 @@ def _resolve_path(base: Path, value: str, default: Path) -> Path:
 
 
 def load_config(
-    env_file: Optional[Path] = None,
-    overrides: Optional[Dict[str, str]] = None,
+    env_file: Path | None = None,
+    overrides: dict[str, str] | None = None,
 ) -> BastionConfig:
     """Build a :class:`BastionConfig` from ``.env`` + environment + overrides.
 
@@ -139,8 +146,8 @@ def load_config(
     environment, explicit ``overrides``.
     """
     # Layer sources into one mapping.
-    layered: Dict[str, str] = {}
-    sources: List[str] = ["defaults"]
+    layered: dict[str, str] = {}
+    sources: list[str] = ["defaults"]
 
     if env_file is None:
         candidate = Path.cwd() / ".env"
@@ -153,7 +160,8 @@ def load_config(
         "BASTION_HOST", "BASTION_PORT", "BASTION_HOME", "BASTION_DB_PATH",
         "BASTION_REPORT_DIR", "BASTION_LIVE_FETCH", "BASTION_FETCH_ALLOWLIST",
         "BASTION_FETCH_MAX_BYTES", "BASTION_FETCH_TIMEOUT_SECONDS",
-        "BASTION_ACTIVE_CHECKS", "BASTION_AI_ASSISTANT",
+        "BASTION_ACTIVE_CHECKS", "BASTION_ALLOW_REMOTE_DASHBOARD",
+        "BASTION_DASHBOARD_TOKEN", "BASTION_WEB_SECRET", "BASTION_AI_ASSISTANT",
         "BASTION_AI_COMMAND_EXECUTION", "BASTION_AI_ENDPOINT",
         "BASTION_AI_ALLOW_CLOUD", "BASTION_LOG_LEVEL",
     ]
@@ -204,6 +212,9 @@ def load_config(
         fetch_max_bytes=_int("BASTION_FETCH_MAX_BYTES", 10 * 1024 * 1024),
         fetch_timeout_seconds=_int("BASTION_FETCH_TIMEOUT_SECONDS", 20),
         active_checks=_parse_bool(get("BASTION_ACTIVE_CHECKS"), False),
+        allow_remote_dashboard=get("BASTION_ALLOW_REMOTE_DASHBOARD").strip() == "1",
+        dashboard_token=get("BASTION_DASHBOARD_TOKEN", ""),
+        web_secret=get("BASTION_WEB_SECRET", ""),
         ai_assistant=_parse_bool(get("BASTION_AI_ASSISTANT"), False),
         ai_command_execution=_parse_bool(get("BASTION_AI_COMMAND_EXECUTION"), False),
         ai_endpoint=get("BASTION_AI_ENDPOINT", ""),

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 from greynoc_bastion.adapters.nhi_adapter import NhiAdapter
-from greynoc_bastion.services.identity_blast_radius import IdentityBlastRadiusService
 
 # Full synthetic secrets that live in the sample project — none of these may
 # ever appear in scan output, findings, or the database.

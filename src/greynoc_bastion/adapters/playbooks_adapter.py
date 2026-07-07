@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from ..schemas import BastionPlaybook, PlaybookStep, Severity
 from .base import BaseAdapter
@@ -72,13 +71,13 @@ class PlaybooksAdapter(BaseAdapter):
     source_repo = "GreyNOC/Playbooks"
     name = "playbooks"
 
-    def __init__(self, playbooks_dir: Optional[Path] = None) -> None:
+    def __init__(self, playbooks_dir: Path | None = None) -> None:
         super().__init__()
         self.playbooks_dir = Path(playbooks_dir) if playbooks_dir else (
             Path(__file__).resolve().parents[1] / "fixtures" / "playbooks"
         )
 
-    def _iter_files(self) -> List[Path]:
+    def _iter_files(self) -> list[Path]:
         if not self.playbooks_dir.is_dir():
             return []
         files = []
@@ -111,7 +110,7 @@ class PlaybooksAdapter(BaseAdapter):
         summary = self._extract_summary(text)
 
         # Embedded draft-detection JSON blocks -> related detections (as drafts).
-        related_detections: List[str] = []
+        related_detections: list[str] = []
         for m in _JSON_BLOCK_RE.finditer(text):
             block = m.group(1)
             name_m = re.search(r'"rule_name"\s*:\s*"([^"]+)"', block)
@@ -147,7 +146,7 @@ class PlaybooksAdapter(BaseAdapter):
     }
 
     @classmethod
-    def _pick_name(cls, h1_list: List[str], h2_list: List[str], slug: str) -> str:
+    def _pick_name(cls, h1_list: list[str], h2_list: list[str], slug: str) -> str:
         def generic(text: str) -> bool:
             clean = re.sub(r"^\d+\.\s*", "", text.strip()).strip().lower().rstrip(":")
             # Generic if it exactly matches, or starts with, a known section name.
@@ -195,9 +194,9 @@ class PlaybooksAdapter(BaseAdapter):
         return ""
 
     @staticmethod
-    def _extract_steps(text: str) -> List[PlaybookStep]:
+    def _extract_steps(text: str) -> list[PlaybookStep]:
         """Pull a response checklist from a Response/Containment section."""
-        steps: List[PlaybookStep] = []
+        steps: list[PlaybookStep] = []
         section = None
         for h in ("Response", "Containment", "Response & Containment", "Response Actions",
                   "Response Playbook", "Remediation"):
@@ -223,8 +222,8 @@ class PlaybooksAdapter(BaseAdapter):
                 break
         return steps
 
-    def load_all(self) -> List[BastionPlaybook]:
-        out: List[BastionPlaybook] = []
+    def load_all(self) -> list[BastionPlaybook]:
+        out: list[BastionPlaybook] = []
         for f in self._iter_files():
             try:
                 out.append(self.parse_file(f))
@@ -232,7 +231,7 @@ class PlaybooksAdapter(BaseAdapter):
                 self.log.warning("failed to parse playbook %s: %s", f.name, exc)
         return out
 
-    def get(self, slug_or_name: str) -> Optional[BastionPlaybook]:
+    def get(self, slug_or_name: str) -> BastionPlaybook | None:
         key = slug_or_name.lower().strip()
         playbooks = self.load_all()
         # 1) Exact slug or name match wins.

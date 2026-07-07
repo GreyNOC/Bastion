@@ -1,31 +1,88 @@
 """Local dashboard server.
 
-A Flask app bound to loopback by default. Read (GET) routes render stored data
-and live-derived views; a small set of POST actions run a module on demand
-(all local, all safe, no destructive operations). ``/healthz`` is a JSON health
-route used by tests and monitoring.
+A Flask app bound to loopback (``127.0.0.1``) by default. Read (GET) routes
+render stored data; a small set of POST actions run a module on demand (all
+local, all safe, no destructive operations). ``/healthz`` is a JSON health route.
+
+Safety posture of the dashboard:
+  * **Loopback only by default.** Binding to a non-loopback host is refused
+    unless ``BASTION_ALLOW_REMOTE_DASHBOARD=1`` *and* ``BASTION_DASHBOARD_TOKEN``
+    are both set (:func:`ensure_bind_allowed`).
+  * **Token auth.** If ``BASTION_DASHBOARD_TOKEN`` is set, every request (except
+    the health check) must carry ``Authorization: Bearer <token>`` (or, for
+    local development, ``?token=<token>``).
+  * **CSRF.** POST actions require a per-session CSRF token; Bearer-authenticated
+    API clients are exempt (the header is not sent cross-site by browsers).
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-import os
+import hmac
 import secrets
-from typing import Optional
+from pathlib import Path
 
 from flask import (
     Flask,
+    Response,
     abort,
     flash,
     jsonify,
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 
 from ..app import BastionApp
 from ..schemas import ReportFormat
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def ensure_bind_allowed(host: str, *, allow_remote: bool = False, has_token: bool = False) -> None:
+    """Fail closed before binding the dashboard to a non-loopback host.
+
+    Raises :class:`SystemExit` with a clear message if a remote bind is
+    requested without the explicit override (``allow_remote``) and an auth token
+    (``has_token``). Loopback binds always pass. The two flags come from the
+    resolved config so ``.env`` values are honored, not only real env vars.
+    """
+    if host in _LOOPBACK_HOSTS:
+        return
+    if not allow_remote:
+        raise SystemExit(
+            f"Refusing to bind the dashboard to non-loopback host '{host}'. "
+            "The dashboard is loopback-only by default. To expose it deliberately, set "
+            "BASTION_ALLOW_REMOTE_DASHBOARD=1 AND BASTION_DASHBOARD_TOKEN=<strong-token>."
+        )
+    if not has_token:
+        raise SystemExit(
+            f"Refusing remote dashboard bind on '{host}' without BASTION_DASHBOARD_TOKEN set — "
+            "that would expose an unauthenticated dashboard. Set a strong token and retry."
+        )
+
+
+def _request_authed(req, token: str) -> bool:
+    """True if the request is authorized for the token-protected dashboard.
+
+    Accepts an ``Authorization: Bearer`` header, a ``?token=`` query (which then
+    bootstraps an authenticated session so subsequent navigation/POSTs work
+    without re-supplying the token), or a previously-established session.
+    """
+    header = req.headers.get("Authorization", "")
+    if header.startswith("Bearer ") and hmac.compare_digest(header[7:], token):
+        return True
+    query = req.args.get("token", "")
+    if query and hmac.compare_digest(query, token):
+        session["_authed"] = True  # bootstrap a session from the query token
+        return True
+    return bool(session.get("_authed"))
+
+
+def _has_valid_bearer(req, token: str | None) -> bool:
+    header = req.headers.get("Authorization", "")
+    return bool(token) and header.startswith("Bearer ") and hmac.compare_digest(header[7:], token)
 
 
 def create_app(bastion: BastionApp) -> Flask:
@@ -34,10 +91,41 @@ def create_app(bastion: BastionApp) -> Flask:
         template_folder=str(Path(__file__).with_name("templates")),
         static_folder=str(Path(__file__).with_name("static")),
     )
-    # Per-process random key (flash messages only; the dashboard is loopback and
-    # unauthenticated). Override via BASTION_WEB_SECRET only if you need sessions
-    # to survive a restart. Never a committed constant.
-    app.config["SECRET_KEY"] = os.environ.get("BASTION_WEB_SECRET") or secrets.token_hex(16)
+    # Per-process random key signs the session cookie (CSRF token + flash).
+    # Resolved from config (honors .env); set BASTION_WEB_SECRET only if sessions
+    # must survive a restart.
+    app.config["SECRET_KEY"] = bastion.config.web_secret or secrets.token_hex(16)
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+    # Optional token auth, resolved from config (so a token in .env is honored).
+    # When set, required on every request except /healthz.
+    dashboard_token = bastion.config.dashboard_token or None
+
+    @app.context_processor
+    def _inject_csrf():
+        token = session.get("_csrf")
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session["_csrf"] = token
+        return {"csrf_token": token}
+
+    @app.before_request
+    def _security_gate():
+        # Health check and static assets stay open (monitoring; no data).
+        if request.endpoint in ("healthz", "static"):
+            return None
+        # 1) Token auth (only enforced when a token is configured).
+        if dashboard_token and not _request_authed(request, dashboard_token):
+            return Response("unauthorized: provide Authorization: Bearer <token>\n", 401)
+        # 2) CSRF on state-changing requests. Bearer-authenticated API clients
+        #    are exempt (the header is never auto-sent cross-site).
+        if request.method == "POST" and not _has_valid_bearer(request, dashboard_token):
+            form_token = request.form.get("csrf_token", "")
+            sess_token = session.get("_csrf", "")
+            if not sess_token or not hmac.compare_digest(str(form_token), str(sess_token)):
+                return Response("invalid or missing CSRF token\n", 403)
+        return None
 
     def ctx():
         posture = bastion.safety_status().posture
@@ -181,11 +269,16 @@ def create_app(bastion: BastionApp) -> Flask:
 
 
 def serve(bastion: BastionApp, host: str = "127.0.0.1", port: int = 8788) -> None:
+    # Fail closed: refuse a non-loopback bind unless explicitly overridden and
+    # protected by a token. Settings come from resolved config (honors .env).
+    ensure_bind_allowed(
+        host,
+        allow_remote=bastion.config.allow_remote_dashboard,
+        has_token=bool(bastion.config.dashboard_token),
+    )
+    remote = host not in _LOOPBACK_HOSTS
     app = create_app(bastion)
-    if host not in ("127.0.0.1", "::1", "localhost"):
-        bastion.log.warning(
-            "serving on non-loopback host %s — the dashboard has no authentication; "
-            "exposing it beyond localhost is strongly discouraged.", host
-        )
-    bastion.log.info("GreyNOC Bastion dashboard on http://%s:%s (Ctrl+C to stop)", host, port)
+    mode = "remote (token auth required)" if remote else "loopback only"
+    bastion.log.info("GreyNOC Bastion dashboard on http://%s:%s — %s — Ctrl+C to stop",
+                     host, port, mode)
     app.run(host=host, port=port, debug=False, use_reloader=False)

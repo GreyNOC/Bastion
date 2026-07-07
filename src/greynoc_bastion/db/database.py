@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from typing import Any
 
 from ..schemas import (
     BastionAsset,
@@ -80,7 +81,7 @@ class Database:
                 ),
             )
 
-    def list_threats(self, limit: int = 100) -> List[BastionThreat]:
+    def list_threats(self, limit: int = 100) -> list[BastionThreat]:
         # Order by urgency in SQL; break ties by true severity rank in Python
         # (the severity column is text, so a SQL sort would be alphabetical and
         # rank "medium" above "high"/"critical").
@@ -106,7 +107,7 @@ class Database:
                 ),
             )
 
-    def list_identities(self, limit: int = 500) -> List[BastionIdentity]:
+    def list_identities(self, limit: int = 500) -> list[BastionIdentity]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT data FROM identities ORDER BY discovered_at DESC LIMIT ?", (limit,)
@@ -122,14 +123,14 @@ class Database:
                 (d.detection_id, d.name, d.severity.value, d.status.value, d.updated_at, self._dumps(d)),
             )
 
-    def get_detection(self, detection_id: str) -> Optional[BastionDetection]:
+    def get_detection(self, detection_id: str) -> BastionDetection | None:
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT data FROM detections WHERE detection_id = ?", (detection_id,)
             ).fetchone()
         return BastionDetection.from_dict(json.loads(row["data"])) if row else None
 
-    def list_detections(self, limit: int = 500) -> List[BastionDetection]:
+    def list_detections(self, limit: int = 500) -> list[BastionDetection]:
         with self.connect() as conn:
             rows = conn.execute("SELECT data FROM detections LIMIT ?", (limit,)).fetchall()
         return [BastionDetection.from_dict(json.loads(r["data"])) for r in rows]
@@ -145,7 +146,7 @@ class Database:
                  int(bool(v.passed)), v.ran_at, self._dumps(v)),
             )
 
-    def list_validations(self, limit: int = 500) -> List[BastionValidationResult]:
+    def list_validations(self, limit: int = 500) -> list[BastionValidationResult]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT data FROM validation_results ORDER BY ran_at DESC LIMIT ?", (limit,)
@@ -161,7 +162,7 @@ class Database:
                 (p.slug, p.name, p.category, p.severity.value, p.updated_at, self._dumps(p)),
             )
 
-    def list_playbooks(self, limit: int = 500) -> List[BastionPlaybook]:
+    def list_playbooks(self, limit: int = 500) -> list[BastionPlaybook]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT data FROM playbooks ORDER BY slug LIMIT ?", (limit,)
@@ -179,7 +180,7 @@ class Database:
                  a.severity.value, int(bool(a.risky)), a.last_seen, self._dumps(a)),
             )
 
-    def list_assets(self, limit: int = 500) -> List[BastionAsset]:
+    def list_assets(self, limit: int = 500) -> list[BastionAsset]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT data FROM assets ORDER BY risky DESC LIMIT ?", (limit,)
@@ -208,7 +209,7 @@ class Database:
             n += 1
         return n
 
-    def list_findings(self, limit: int = 1000, category: Optional[str] = None) -> List[BastionFinding]:
+    def list_findings(self, limit: int = 1000, category: str | None = None) -> list[BastionFinding]:
         with self.connect() as conn:
             if category:
                 rows = conn.execute(
@@ -230,7 +231,7 @@ class Database:
                 (r.report_id, r.title, r.generated_at, self._dumps(r)),
             )
 
-    def list_reports(self, limit: int = 100) -> List[BastionReport]:
+    def list_reports(self, limit: int = 100) -> list[BastionReport]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT data FROM reports ORDER BY generated_at DESC LIMIT ?", (limit,)
@@ -247,7 +248,7 @@ class Database:
 
     # --- audit log -----------------------------------------------------------
     def audit(self, action: str, *, actor: str = "system", detail: str = "",
-              correlation_id: Optional[str] = None) -> None:
+              correlation_id: str | None = None) -> None:
         """Append a privileged-action record. Detail is scrubbed by callers."""
         with self.connect() as conn:
             conn.execute(
@@ -255,7 +256,7 @@ class Database:
                 (utcnow_iso(), action, actor, detail, correlation_id),
             )
 
-    def recent_audit(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def recent_audit(self, limit: int = 100) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT ts, action, actor, detail, correlation_id FROM audit_log "
@@ -268,19 +269,21 @@ class Database:
         with self.connect() as conn:
             conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)", (key, value))
 
-    def get_meta(self, key: str, default: Optional[str] = None) -> Optional[str]:
+    def get_meta(self, key: str, default: str | None = None) -> str | None:
         with self.connect() as conn:
             row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
 
-    def counts(self) -> Dict[str, int]:
+    def counts(self) -> dict[str, int]:
         """Row counts per table for the Overview page and ``status``."""
         tables = [
             "threats", "identities", "detections", "validation_results",
             "playbooks", "assets", "findings", "reports", "evidence",
         ]
-        out: Dict[str, int] = {}
+        out: dict[str, int] = {}
         with self.connect() as conn:
             for tbl in tables:
-                out[tbl] = conn.execute(f"SELECT COUNT(*) AS n FROM {tbl}").fetchone()["n"]
+                # tbl is from the fixed internal allowlist above, never user input.
+                query = f"SELECT COUNT(*) AS n FROM {tbl}"  # nosec B608
+                out[tbl] = conn.execute(query).fetchone()["n"]
         return out

@@ -18,7 +18,7 @@ that must never be pulled in. See docs/INTEGRATION_NOTES.md.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..utils.logging import get_logger
 
@@ -29,7 +29,7 @@ class AdapterResult:
 
     ok: bool
     data: Any = None
-    error: Optional[str] = None
+    error: str | None = None
     adapter: str = ""
     source_repo: str = ""
 
@@ -56,7 +56,7 @@ class BaseAdapter:
         """
         return True
 
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """A small status dict for ``doctor`` / Safety Status."""
         return {
             "adapter": self.name,

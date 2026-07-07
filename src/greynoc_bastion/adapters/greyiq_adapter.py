@@ -19,14 +19,14 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..safety.masking import scrub_text
 from ..schemas import BastionFinding, BastionReport
 from .base import BaseAdapter
 
 # Prompt-injection signal patterns (ported/adapted from GreyIQ trust.py).
-_SIGNALS: List[tuple] = [
+_SIGNALS: list[tuple] = [
     ("instruction-override", "Overrides prior instructions", "high",
      re.compile(r"\b(ignore|disregard|forget|override)\b[^.\n]{0,40}\b(previous|prior|above|earlier|all|the|your)\b", re.I)),
     ("system-prompt-probe", "Attempts to reveal or alter the system prompt", "high",
@@ -41,7 +41,11 @@ _SIGNALS: List[tuple] = [
      re.compile(r"\b(DAN\b|do\s+anything\s+now|no\s+restrictions|without\s+any\s+filter)\b", re.I)),
 ]
 
-_ZERO_WIDTH = re.compile(r"[​‌‍⁠﻿‪-‮]")
+# Zero-width and bidirectional control characters used to hide prompt-injection
+# payloads. Written as explicit escapes so this source file stays ASCII-only
+# (no invisible "trojan source" characters): ZWSP, ZWNJ, ZWJ, word joiner, BOM,
+# and the bidi embedding/override range U+202A..U+202E.
+_ZERO_WIDTH = re.compile("[\u200b\u200c\u200d\u2060\ufeff\u202a-\u202e]")
 
 
 @dataclasses.dataclass
@@ -50,9 +54,9 @@ class TrustAssessment:
 
     trusted: bool
     verdict: str                    # "clean" | "suspicious" | "hostile"
-    signals: List[Dict[str, Any]]
+    signals: list[dict[str, Any]]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
 
@@ -82,7 +86,7 @@ class GreyIQAdapter(BaseAdapter):
     # --- prompt-injection defense -------------------------------------------
     def assess_text(self, text: str, max_signals: int = 8) -> TrustAssessment:
         """Screen untrusted text (file contents, feed data) for injection."""
-        signals: List[Dict[str, Any]] = []
+        signals: list[dict[str, Any]] = []
         if not text:
             return TrustAssessment(trusted=True, verdict="clean", signals=[])
         for sid, label, severity, pattern in _SIGNALS:
@@ -158,7 +162,7 @@ class GreyIQAdapter(BaseAdapter):
                 lines.append(f"  - [{f.severity.value}] {f.title} ({f.affected})")
         return scrub_text("\n".join(lines))
 
-    def draft_ticket(self, finding: BastionFinding) -> Dict[str, str]:
+    def draft_ticket(self, finding: BastionFinding) -> dict[str, str]:
         """Draft a defensive remediation ticket from a finding."""
         title = f"[{finding.severity.value.upper()}] {finding.title}"
         body = "\n".join([
@@ -184,7 +188,7 @@ class GreyIQAdapter(BaseAdapter):
         """Command execution requires BOTH the assistant and the exec gate on."""
         return bool(self.enabled and self.command_execution)
 
-    def request_command_execution(self, command: str, workspace: str = "") -> Dict[str, Any]:
+    def request_command_execution(self, command: str, workspace: str = "") -> dict[str, Any]:
         """Gated, logged, and — in the MVP — always refused.
 
         The safe default is no execution. Even when both gates are enabled, the

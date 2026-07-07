@@ -8,12 +8,14 @@ from here rather than the submodules::
 
 from __future__ import annotations
 
+from .asset import BastionAsset
 from .base import (
     BastionModel,
     new_correlation_id,
     stable_fingerprint,
     utcnow_iso,
 )
+from .detection import BastionDetection, BastionValidationResult
 from .enums import (
     AssetKind,
     Confidence,
@@ -26,8 +28,6 @@ from .enums import (
     ThreatCategory,
     ValidationStatus,
 )
-from .asset import BastionAsset
-from .detection import BastionDetection, BastionValidationResult
 from .evidence import BastionEvidence
 from .finding import BastionFinding
 from .identity import BastionIdentity

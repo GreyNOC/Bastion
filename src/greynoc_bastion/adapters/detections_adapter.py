@@ -15,7 +15,6 @@ validated."
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
 
 from ..schemas import (
     BastionDetection,
@@ -32,12 +31,12 @@ class DetectionsAdapter(BaseAdapter):
     source_repo = "GreyNOC/Detections"
     name = "detections"
 
-    def __init__(self, fixtures_dir: Optional[Path] = None) -> None:
+    def __init__(self, fixtures_dir: Path | None = None) -> None:
         super().__init__()
         self._dmz = DmzAdapter(fixtures_dir)
 
     # --- canonical validated pack -------------------------------------------
-    def load_validated_pack(self) -> List[BastionDetection]:
+    def load_validated_pack(self) -> list[BastionDetection]:
         """Load the GNOC rule pack and mark it validated *after* it passes.
 
         We do not trust the pack blindly: each rule is run against its bundled
@@ -45,7 +44,7 @@ class DetectionsAdapter(BaseAdapter):
         fail their own test are surfaced as NEEDS_TUNING.
         """
         results = {r.detection_id: r for r in self._dmz.validate_all_rules()}
-        detections: List[BastionDetection] = []
+        detections: list[BastionDetection] = []
         for rule in self._dmz.load_rules():
             det = self._dmz.rule_to_detection(rule)
             res = results.get(det.detection_id)
@@ -111,7 +110,7 @@ class DetectionsAdapter(BaseAdapter):
             detection.metadata["deprecation_reason"] = reason
         return detection
 
-    def coverage_summary(self, detections: List[BastionDetection]) -> dict:
+    def coverage_summary(self, detections: list[BastionDetection]) -> dict:
         """Rollup by status + ATT&CK technique coverage for the dashboard."""
         by_status: dict = {}
         techniques: set = set()

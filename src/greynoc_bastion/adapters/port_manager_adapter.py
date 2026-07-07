@@ -15,14 +15,14 @@ from __future__ import annotations
 import ipaddress
 import platform
 import re
-import subprocess
-from typing import Any, Dict, List, Optional
+import subprocess  # nosec B404 - used only with fixed argument lists, never shell=True
+from typing import Any
 
 from ..schemas import Exposure
 from .base import BaseAdapter
 
 # port -> dev/service label (ported COMMON_PORTS).
-COMMON_PORTS: Dict[int, str] = {
+COMMON_PORTS: dict[int, str] = {
     3000: "React / Next.js / Node dev server",
     3001: "Node dev server",
     4200: "Angular dev server",
@@ -39,7 +39,7 @@ COMMON_PORTS: Dict[int, str] = {
 }
 
 # process/command regex -> dev framework label (ported DEV_HINTS).
-DEV_HINTS: List[tuple] = [
+DEV_HINTS: list[tuple] = [
     (re.compile(r"vite", re.I), "Vite"),
     (re.compile(r"next(?:\.js|-server)?", re.I), "Next.js"),
     (re.compile(r"react-scripts", re.I), "React"),
@@ -67,7 +67,7 @@ def classify_endpoint(addr: str) -> Exposure:
     if not addr:
         return Exposure.UNKNOWN
     a = addr.strip().strip("[]").lower()
-    if a in ("*", "0.0.0.0", "::", "[::]"):
+    if a in ("*", "0.0.0.0", "::", "[::]"):  # nosec B104 - classifying an observed bind address, not binding
         # Bound to all interfaces -> reachable from the LAN.
         return Exposure.LAN
     try:
@@ -100,7 +100,7 @@ class PortManagerAdapter(BaseAdapter):
     source_repo = "GreyNOC/Port-Manager"
     name = "port_manager"
 
-    def list_local_listeners(self, *, active: bool = True) -> List[Dict[str, Any]]:
+    def list_local_listeners(self, *, active: bool = True) -> list[dict[str, Any]]:
         """Read the local socket table for LISTENING sockets.
 
         Returns observations ``{host, port, protocol, process, exposure, is_dev_server}``.
@@ -123,17 +123,17 @@ class PortManagerAdapter(BaseAdapter):
             return []
 
     @staticmethod
-    def _run(cmd: List[str]) -> str:
+    def _run(cmd: list[str]) -> str:
         try:
-            proc = subprocess.run(
+            proc = subprocess.run(  # nosec B603 - fixed argument list (netstat/ss), no shell, no user input
                 cmd, capture_output=True, text=True, timeout=15, check=False,
             )
             return proc.stdout or ""
         except (OSError, subprocess.SubprocessError):
             return ""
 
-    def _parse_netstat_windows(self, raw: str) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
+    def _parse_netstat_windows(self, raw: str) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         seen: set = set()
         for line in raw.splitlines():
             parts = line.split()
@@ -157,12 +157,12 @@ class PortManagerAdapter(BaseAdapter):
             })
         return out
 
-    def _parse_ss(self, raw: str) -> List[Dict[str, Any]]:
+    def _parse_ss(self, raw: str) -> list[dict[str, Any]]:
         # Input comes from `ss -ltnH` / `netstat -ltn`; the `-l` flag already
         # restricts output to LISTENING sockets, so no per-line state filter is
         # needed. If the state column is present, only keep LISTEN lines as a
         # defensive backstop.
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         seen: set = set()
         for line in raw.splitlines():
             up = line.upper()

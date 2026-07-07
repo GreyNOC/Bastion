@@ -136,6 +136,34 @@ def test_verify_bundle_handles_malformed_archive(tmp_path):
     assert result["ok"] is False and result["problems"]
 
 
+def test_verify_bundle_handles_malformed_manifest_shape(tmp_path):
+    # Valid-JSON manifests with a non-object 'entries' (null / list / string) or a
+    # non-object manifest must be reported as failures, never raise.
+    import json
+    import zipfile
+    cases = [
+        ('{"entries": null}', "entries"),
+        ('{"entries": [1, 2, 3]}', "entries"),
+        ('{"entries": "nope"}', "entries"),
+        ('[1, 2, 3]', "object"),
+        ('"just a string"', "object"),
+    ]
+    ec = EvidenceCenter()
+    for i, (manifest, _hint) in enumerate(cases):
+        bundle = tmp_path / f"bad-manifest-{i}.evidence.zip"
+        with zipfile.ZipFile(bundle, "w") as zf:
+            zf.writestr("manifest.json", manifest)
+        result = ec.verify_bundle(bundle)  # must not raise
+        assert result["ok"] is False, (manifest, result)
+        assert result["problems"]
+    # And a manifest with a malformed per-entry meta is flagged, not raised.
+    bundle = tmp_path / "bad-entry.evidence.zip"
+    with zipfile.ZipFile(bundle, "w") as zf:
+        zf.writestr("manifest.json", json.dumps({"entries": {"x.json": "not-a-dict"}}))
+    result = ec.verify_bundle(bundle)
+    assert result["ok"] is False and any("malformed entry" in p for p in result["problems"])
+
+
 def test_report_json_roundtrips(tmp_path):
     rep = _report_with_leaky_finding()
     written = ReportCenter().write(rep, tmp_path, [ReportFormat.JSON])

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Optional
 
 from ..safety.masking import scrub_text
 
@@ -48,7 +47,7 @@ def setup_logging(level: str = "INFO", stream=None) -> None:
     _CONFIGURED = True
 
 
-def get_logger(name: Optional[str] = None) -> logging.Logger:
+def get_logger(name: str | None = None) -> logging.Logger:
     """Get a Bastion child logger (configures logging on first use)."""
     if not _CONFIGURED:
         setup_logging()

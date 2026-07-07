@@ -74,6 +74,16 @@ def test_finding_required_narrative_fields_present():
         assert hasattr(f, field), field
 
 
+def test_from_dict_rehydrates_pep604_optional_nested_model():
+    # A nested model behind a PEP 604 ``X | None`` annotation (ThreatForecast on
+    # BastionThreat.forecast) must rehydrate to the model, not stay a dict.
+    from greynoc_bastion.schemas import BastionThreat, ThreatForecast
+    t = BastionThreat(title="x", forecast=ThreatForecast(window="imminent", exploit_probability=0.5))
+    clone = BastionThreat.from_dict(t.to_dict())
+    assert isinstance(clone.forecast, ThreatForecast)
+    assert clone.forecast.window == "imminent"
+
+
 def test_validation_metrics_compute():
     r = BastionValidationResult(
         detection_id="D", true_positives=3, false_positives=0,

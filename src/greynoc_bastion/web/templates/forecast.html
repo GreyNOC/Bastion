@@ -8,6 +8,7 @@
 
 <div class="actions">
   <form class="inline" method="post" action="{{ url_for('run_forecast') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="text" name="sectors" placeholder="sectors (e.g. healthcare,gateway)">
     <button class="btn">Run forecast (offline fixtures)</button>
   </form>

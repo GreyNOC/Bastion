@@ -8,6 +8,7 @@
 
 <div class="actions">
   <form class="inline" method="post" action="{{ url_for('run_identities') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="text" name="path" placeholder="repo/project path to scan"
            value="{{ default_path }}">
     <button class="btn">Scan for identities</button>

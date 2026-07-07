@@ -11,13 +11,19 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import types
 import typing
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Type, TypeVar, get_args, get_origin
+from typing import Any, TypeVar, get_args, get_origin
 
 T = TypeVar("T", bound="BastionModel")
+
+# Both spellings of a union must be recognized: ``Optional[X]`` / ``Union[...]``
+# (origin ``typing.Union``) and the PEP 604 ``X | None`` (origin
+# ``types.UnionType``). Missing the latter silently skips nested-model coercion.
+_UNION_ORIGINS = (typing.Union, types.UnionType)
 
 
 def utcnow_iso() -> str:
@@ -66,8 +72,8 @@ class BastionModel:
     back through each enum's ``coerce`` classmethod when present.
     """
 
-    def to_dict(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {}
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         for f in dataclasses.fields(self):
             out[f.name] = _to_jsonable(getattr(self, f.name))
         return out
@@ -76,14 +82,14 @@ class BastionModel:
         return json.dumps(self.to_dict(), indent=indent, sort_keys=sort_keys, ensure_ascii=False)
 
     @classmethod
-    def from_dict(cls: Type[T], data: Dict[str, Any]) -> T:
+    def from_dict(cls: type[T], data: dict[str, Any]) -> T:
         if data is None:
             raise ValueError(f"{cls.__name__}.from_dict got None")
         try:
             hints = typing.get_type_hints(cls)
         except Exception:  # pragma: no cover - defensive
             hints = {}
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         for f in dataclasses.fields(cls):
             if f.name not in data:
                 continue
@@ -118,7 +124,7 @@ def _coerce_value(ftype: Any, value: Any, default: Any = None) -> Any:
         return [_coerce_value(inner, v) for v in value]
     if origin is dict:
         return value  # dicts are passed through untouched
-    if origin is typing.Union:  # Optional[X] and unions
+    if origin in _UNION_ORIGINS:  # Optional[X], Union[...], and X | None
         args = [a for a in get_args(ftype) if a is not type(None)]
         if len(args) == 1:
             return _coerce_value(args[0], value, default)
