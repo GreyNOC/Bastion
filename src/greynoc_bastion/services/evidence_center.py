@@ -130,7 +130,20 @@ class EvidenceCenter:
                 except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                     return {"bundle": str(bundle_path), "report_id": None,
                             "ok": False, "problems": [f"unreadable manifest: {exc}"], "entry_count": 0}
-                for name, meta in manifest.get("entries", {}).items():
+                # Validate the manifest shape before iterating: a valid-JSON but
+                # malformed manifest (not an object, or `entries` not an object)
+                # must be reported as a failure, not raise AttributeError.
+                if not isinstance(manifest, dict):
+                    return {"bundle": str(bundle_path), "report_id": None,
+                            "ok": False, "problems": ["manifest is not a JSON object"], "entry_count": 0}
+                entries = manifest.get("entries", {})
+                if not isinstance(entries, dict):
+                    return {"bundle": str(bundle_path), "report_id": manifest.get("report_id"),
+                            "ok": False, "problems": ["manifest 'entries' is not an object"], "entry_count": 0}
+                for name, meta in entries.items():
+                    if not isinstance(meta, dict):
+                        problems.append(f"malformed entry metadata: {name}")
+                        continue
                     try:
                         data = zf.read(name)
                     except KeyError:
@@ -147,7 +160,7 @@ class EvidenceCenter:
             "report_id": manifest.get("report_id"),
             "ok": not problems,
             "problems": problems,
-            "entry_count": len(manifest.get("entries", {})),
+            "entry_count": len(entries),
         }
 
     # --- signing scaffold (NOT yet implemented) -----------------------------
