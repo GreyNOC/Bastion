@@ -1,0 +1,4 @@
+agents:
+  - name: triage-bot
+    model: gpt-4
+    tools: [search, shell]

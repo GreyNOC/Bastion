@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Overview — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Overview</h1>
+    <div class="sub">Local-first defensive operations console · {{ status.timestamp }}</div>
+  </div>
+  <span class="posture {{ posture }}"><span class="dot"></span>{{ posture|upper }}</span>
+</div>
+
+<div class="actions">
+  <form class="inline" method="post" action="{{ url_for('run_seed') }}">
+    <button class="btn">Run demo across all modules</button>
+  </form>
+  <form class="inline" method="post" action="{{ url_for('run_doctor') }}">
+    <button class="btn ghost">Run doctor</button>
+  </form>
+  <a class="btn ghost" href="{{ url_for('reports') }}">Build report</a>
+</div>
+
+<div class="cards">
+  <div class="card accent"><div class="k">Threats ranked</div><div class="v">{{ counts.threats }}</div></div>
+  <div class="card accent"><div class="k">Identities</div><div class="v">{{ counts.identities }}</div></div>
+  <div class="card accent"><div class="k">Detections</div><div class="v">{{ counts.detections }}</div></div>
+  <div class="card accent"><div class="k">Validations</div><div class="v">{{ counts.validation_results }}</div></div>
+  <div class="card accent"><div class="k">Assets reviewed</div><div class="v">{{ counts.assets }}</div></div>
+  <div class="card accent"><div class="k">Findings</div><div class="v">{{ counts.findings }}</div></div>
+</div>
+
+<div class="panel">
+  <h2>Highest-priority findings</h2>
+  {% if top_findings %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Severity</th><th>Title</th><th>Module</th><th>Affected</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for f in top_findings %}
+      <tr>
+        <td><span class="badge {{ f.severity.value }}">{{ f.severity.value }}</span></td>
+        <td>{{ f.title }}</td>
+        <td><span class="pill">{{ f.category.value }}</span></td>
+        <td class="mono small">{{ f.affected }}</td>
+        <td><span class="badge {{ f.validation_status.value }}">{{ f.validation_status.value }}</span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No findings yet. Click <b>Run demo across all modules</b> to populate the console with
+  offline fixture data, or use the individual module pages.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>Modules</h2>
+  <div class="status-grid">
+    <div class="status-row"><span class="lab">Threat Forecast</span><span class="val">Detector-Engine intelligence brain</span></div>
+    <div class="status-row"><span class="lab">Identity Blast Radius</span><span class="val">NHI scan (secrets masked)</span></div>
+    <div class="status-row"><span class="lab">Detection Validation</span><span class="val">DMZ synthetic range</span></div>
+    <div class="status-row"><span class="lab">Operator Playbooks</span><span class="val">{{ status.playbooks_available }} defensive playbooks</span></div>
+    <div class="status-row"><span class="lab">Assets &amp; Exposure</span><span class="val">HomeGuard + Port-Manager (passive)</span></div>
+    <div class="status-row"><span class="lab">AI Assistant</span><span class="val {{ 'state-on' if config.ai_assistant else 'state-off' }}">{{ 'enabled' if config.ai_assistant else 'disabled (default)' }}</span></div>
+  </div>
+</div>
+{% endblock %}

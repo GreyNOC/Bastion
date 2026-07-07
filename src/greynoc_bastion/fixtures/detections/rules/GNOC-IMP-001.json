@@ -1,0 +1,21 @@
+{
+  "id": "GNOC-IMP-001",
+  "name": "Ransomware file impact",
+  "description": "Flags synthetic mass file encryption markers.",
+  "severity": "critical",
+  "data_source": "edr",
+  "event_type": "file_event",
+  "match": {
+    "message": {
+      "op": "regex",
+      "value": "(?i)(\\.encrypted|ransom[_-]?note|README_RESTORE)"
+    }
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": [
+    "TA0040",
+    "T1486"
+  ],
+  "runbook": "runbooks/ransomware-impact.md"
+}

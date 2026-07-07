@@ -1,0 +1,388 @@
+"""GreyNOC Bastion command-line interface.
+
+A single, namespaced CLI (``bastion``) built on the standard library so there
+is no extra dependency and no console-script collision with the source repos.
+
+    bastion status
+    bastion doctor
+    bastion forecast demo --pretty
+    bastion forecast ingest --fixture <path>
+    bastion identities scan <path> --out <folder>
+    bastion detections validate --scenario <path>
+    bastion detections validate --all
+    bastion playbooks list
+    bastion playbooks show <name>
+    bastion assets scan-local --passive
+    bastion report build --out <folder>
+    bastion serve --host 127.0.0.1 --port 8788
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import List, Optional
+
+from . import __version__
+from .app import BastionApp
+from .config import load_config
+from .schemas import ReportFormat
+
+
+# --- small output helpers ----------------------------------------------------
+def _print_json(obj) -> None:
+    print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
+
+
+def _sev_marker(sev: str) -> str:
+    return {
+        "critical": "[CRIT]", "high": "[HIGH]", "medium": "[MED ]",
+        "low": "[LOW ]", "info": "[INFO]",
+    }.get(sev, "[    ]")
+
+
+def _app(args) -> BastionApp:
+    overrides = {}
+    if getattr(args, "host", None):
+        overrides["BASTION_HOST"] = args.host
+    if getattr(args, "port", None):
+        overrides["BASTION_PORT"] = str(args.port)
+    config = load_config(overrides=overrides or None)
+    return BastionApp(config)
+
+
+# --- command handlers --------------------------------------------------------
+def cmd_status(args) -> int:
+    app = _app(args)
+    status = app.status()
+    if args.json:
+        _print_json(status)
+        return 0
+    c = status["config"]
+    print(f"GreyNOC Bastion {status['version']}  —  posture: {status['safety_posture'].upper()}")
+    print(f"  API binding      : {c['host']}:{c['port']}  (loopback_only={c['loopback_only']})")
+    print(f"  Live fetch       : {c['live_fetch']}")
+    print(f"  Active checks    : {c['active_checks']}")
+    print(f"  AI assistant     : {c['ai_assistant']} (cmd exec: {c['ai_command_execution']})")
+    print(f"  Report dir       : {c['report_dir']}")
+    print(f"  Database         : {c['db_path']}")
+    print(f"  Playbooks        : {status['playbooks_available']}")
+    print("  Stored records   :")
+    for k, v in status["counts"].items():
+        print(f"      {k:20} {v}")
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    app = _app(args)
+    result = app.doctor()
+    if args.json:
+        _print_json(result)
+        return 0 if result["ok"] else 1
+    print("bastion doctor")
+    for c in result["checks"]:
+        mark = "  ok  " if c["ok"] else " FAIL "
+        print(f"[{mark}] {c['name']:32} {c['detail']}")
+    print(f"\nResult: {result['result'].upper()}")
+    return 0 if result["ok"] else 1
+
+
+def cmd_forecast(args) -> int:
+    app = _app(args)
+    sectors = [s.strip() for s in (args.sectors or "").split(",") if s.strip()] or None
+    if args.forecast_cmd == "demo":
+        threats = app.threat_forecast.demo(sectors=sectors, persist=args.persist)
+    elif args.forecast_cmd == "ingest":
+        if not args.fixture:
+            print("error: --fixture is required for 'forecast ingest'", file=sys.stderr)
+            return 2
+        threats = app.threat_forecast.ingest(Path(args.fixture), sectors=sectors, persist=True)
+    else:
+        print("error: unknown forecast subcommand", file=sys.stderr)
+        return 2
+
+    if args.json:
+        _print_json([t.to_dict() for t in threats])
+        return 0
+    print(f"Threat Forecast — {len(threats)} threats ranked by urgency\n")
+    for t in threats:
+        print(f"{_sev_marker(t.severity.value)} {t.score.urgency:.3f}  {t.threat_id}  {t.title[:70]}")
+        if args.pretty:
+            for d in t.metadata.get("drivers", []):
+                print(f"           - {d}")
+            print(f"           remediation: {t.remediation[:90]}")
+    return 0
+
+
+def cmd_identities(args) -> int:
+    app = _app(args)
+    if args.identities_cmd != "scan":
+        print("error: unknown identities subcommand", file=sys.stderr)
+        return 2
+    target = Path(args.path)
+    if not target.exists():
+        print(f"error: path not found: {target}", file=sys.stderr)
+        return 2
+    identities = app.identity.scan(target, persist=True)
+    findings = app.identity.to_findings(identities)
+
+    if args.out:
+        report = _report_from_findings(app, findings, title=f"Identity Blast Radius — {target}",
+                                       modules=["identity"], out_dir=Path(args.out))
+        print(f"Report written to {args.out} ({', '.join(report.output_paths)})")
+
+    if args.json:
+        _print_json([i.to_dict() for i in identities])
+        return 0
+    print(f"Identity Blast Radius — {len(identities)} non-human identities (secrets masked)\n")
+    for i in identities:
+        loc = f"{i.location}:{i.line}" if i.line else i.location
+        print(f"{_sev_marker(i.severity.value)} {i.identity_type.value:16} {i.provider or '-':10} "
+              f"{i.masked_preview or '(no value)':30} {loc}")
+    return 0
+
+
+def cmd_detections(args) -> int:
+    app = _app(args)
+    if args.detections_cmd != "validate":
+        print("error: unknown detections subcommand", file=sys.stderr)
+        return 2
+    if args.scenario:
+        result = app.detection.validate_scenario(Path(args.scenario), persist=True)
+        results = [result]
+    else:
+        results = app.detection.validate_all(persist=True)
+
+    if args.json:
+        _print_json([r.to_dict() for r in results])
+        return 0 if all(r.passed for r in results) else 1
+
+    print(f"Detection Validation — {len(results)} result(s)\n")
+    for r in results:
+        mark = "PASS" if r.passed else "FAIL"
+        print(f"[{mark}] {r.detection_id:16} verdict={r.verdict.value:12} "
+              f"tp={r.true_positives} fp={r.false_positives} fn={r.false_negatives}")
+        if args.pretty:
+            print(f"         {r.notes}")
+    passed = sum(1 for r in results if r.passed)
+    print(f"\n{passed}/{len(results)} passed")
+    return 0 if passed == len(results) else 1
+
+
+def cmd_playbooks(args) -> int:
+    app = _app(args)
+    if args.playbooks_cmd == "list":
+        pbs = app.list_playbooks()
+        if args.json:
+            _print_json([{"slug": p.slug, "name": p.name, "category": p.category,
+                          "severity": p.severity.value, "techniques": p.attack_techniques}
+                         for p in pbs])
+            return 0
+        print(f"Operator Playbooks — {len(pbs)} available\n")
+        for p in sorted(pbs, key=lambda x: (x.category, x.slug)):
+            print(f"  {p.slug:36} {p.category:22} [{p.severity.value}]  {p.name[:40]}")
+        return 0
+    if args.playbooks_cmd == "show":
+        pb = app.get_playbook(args.name)
+        if not pb:
+            print(f"error: playbook not found: {args.name}", file=sys.stderr)
+            return 2
+        if args.json:
+            _print_json(pb.to_dict())
+            return 0
+        print(f"# {pb.name}  ({pb.slug})")
+        print(f"Category: {pb.category} | Severity: {pb.severity.value}")
+        print(f"MITRE: {', '.join(pb.attack_techniques) or '—'}")
+        if pb.summary:
+            print(f"\n{pb.summary}\n")
+        if pb.response_steps:
+            print("Response checklist:")
+            for s in pb.response_steps:
+                print(f"  [{s.order:2}] {s.detail}")
+        if pb.related_detections:
+            print(f"\nRelated draft detections: {', '.join(pb.related_detections)}")
+        return 0
+    print("error: unknown playbooks subcommand", file=sys.stderr)
+    return 2
+
+
+def cmd_assets(args) -> int:
+    app = _app(args)
+    if args.assets_cmd != "scan-local":
+        print("error: unknown assets subcommand", file=sys.stderr)
+        return 2
+    active_enabled = app.config.active_checks and not args.passive
+    assets = app.assets.scan_local(
+        passive=True,
+        active_checks_enabled=active_enabled,
+        persist=True,
+    )
+    if args.json:
+        _print_json([a.to_dict() for a in assets])
+        return 0
+    print(f"Assets & Exposure — {len(assets)} local services reviewed (passive)\n")
+    for a in assets:
+        tag = "risky" if a.risky else "     "
+        dev = " dev" if a.is_dev_server else ""
+        print(f"{_sev_marker(a.severity.value)} {tag} {a.service_name:22} {a.host}:{a.port} "
+              f"({a.exposure.value}){dev}")
+    if not assets:
+        print("  (no listening services observed, or none classified as noteworthy)")
+    return 0
+
+
+def cmd_report(args) -> int:
+    app = _app(args)
+    if args.report_cmd != "build":
+        print("error: unknown report subcommand", file=sys.stderr)
+        return 2
+    out_dir = Path(args.out) if args.out else app.config.report_dir
+    formats = _parse_formats(args.formats)
+    report = app.build_report(out_dir=out_dir, formats=formats, include_bundle=not args.no_bundle)
+    if args.json:
+        _print_json({"report_id": report.report_id, "summary": report.summary.to_dict(),
+                     "output_paths": report.output_paths})
+        return 0
+    print(f"Report built: {report.report_id}")
+    print(f"  {report.summary.headline}")
+    print("  Outputs:")
+    for fmt, path in report.output_paths.items():
+        print(f"    {fmt:16} {path}")
+    return 0
+
+
+def cmd_serve(args) -> int:
+    app = _app(args)
+    from .web.server import serve
+    host = args.host or app.config.host
+    port = args.port or app.config.port
+    serve(app, host=host, port=port)
+    return 0
+
+
+# --- helpers -----------------------------------------------------------------
+def _parse_formats(spec: Optional[str]) -> Optional[List[ReportFormat]]:
+    if not spec:
+        return None
+    out: List[ReportFormat] = []
+    for token in spec.split(","):
+        token = token.strip().lower()
+        if not token:
+            continue
+        match = ReportFormat.coerce(token)
+        if match:
+            out.append(match)
+    return out or None
+
+
+def _report_from_findings(app, findings, *, title, modules, out_dir):
+    from .schemas import BastionReport
+    report = BastionReport(title=title, modules=modules, findings=findings)
+    report.recompute_summary()
+    app.report_center.write(report, out_dir, [
+        ReportFormat.HTML, ReportFormat.JSON, ReportFormat.MARKDOWN, ReportFormat.CSV,
+    ])
+    app.evidence_center.build_bundle(report, out_dir)
+    return report
+
+
+# --- parser ------------------------------------------------------------------
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="bastion",
+        description="GreyNOC Bastion — local-first defensive cyber operations platform.",
+    )
+    p.add_argument("--version", action="version", version=f"GreyNOC Bastion {__version__}")
+    p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
+    # Shared parent so `--json` also works AFTER the subcommand
+    # (e.g. both `bastion --json status` and `bastion status --json`).
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                        help="emit machine-readable JSON")
+
+    sub = p.add_subparsers(dest="command", required=True)
+
+    sp = sub.add_parser("status", parents=[common], help="show configuration and stored-record counts")
+    sp.set_defaults(func=cmd_status)
+
+    dp = sub.add_parser("doctor", parents=[common], help="run safety and configuration self-checks")
+    dp.set_defaults(func=cmd_doctor)
+
+    fp = sub.add_parser("forecast", help="threat forecast")
+    fsub = fp.add_subparsers(dest="forecast_cmd", required=True)
+    fd = fsub.add_parser("demo", parents=[common], help="ranked forecast from bundled fixtures")
+    fd.add_argument("--pretty", action="store_true", help="show drivers and remediation")
+    fd.add_argument("--sectors", help="comma-separated sector relevance hints")
+    fd.add_argument("--persist", action="store_true", help="store threats + findings")
+    fd.set_defaults(func=cmd_forecast)
+    fi = fsub.add_parser("ingest", parents=[common], help="forecast from a CVE-feed JSON fixture (offline)")
+    fi.add_argument("--fixture", required=True, help="path to a CVE feed JSON")
+    fi.add_argument("--sectors", help="comma-separated sector relevance hints")
+    fi.add_argument("--pretty", action="store_true")
+    fi.set_defaults(func=cmd_forecast, persist=True)
+
+    ip = sub.add_parser("identities", help="identity blast radius scan")
+    isub = ip.add_subparsers(dest="identities_cmd", required=True)
+    isc = isub.add_parser("scan", parents=[common], help="scan a repo/folder for non-human identities")
+    isc.add_argument("path", help="repo or project folder to scan")
+    isc.add_argument("--out", help="write a report to this folder")
+    isc.set_defaults(func=cmd_identities)
+
+    dep = sub.add_parser("detections", help="detection validation range")
+    desub = dep.add_subparsers(dest="detections_cmd", required=True)
+    dev = desub.add_parser("validate", parents=[common], help="validate a scenario or the whole pack")
+    dev.add_argument("--scenario", help="path to a scenario JSON")
+    dev.add_argument("--all", action="store_true", help="validate the whole rule pack")
+    dev.add_argument("--pretty", action="store_true")
+    dev.set_defaults(func=cmd_detections)
+
+    pp = sub.add_parser("playbooks", help="operator playbooks")
+    psub = pp.add_subparsers(dest="playbooks_cmd", required=True)
+    pl = psub.add_parser("list", parents=[common], help="list available playbooks")
+    pl.set_defaults(func=cmd_playbooks)
+    psh = psub.add_parser("show", parents=[common], help="show one playbook")
+    psh.add_argument("name", help="playbook slug or name")
+    psh.set_defaults(func=cmd_playbooks)
+
+    ap = sub.add_parser("assets", help="local asset & exposure review")
+    asub = ap.add_subparsers(dest="assets_cmd", required=True)
+    asl = asub.add_parser("scan-local", parents=[common], help="review local listening services (passive)")
+    asl.add_argument("--passive", action="store_true", help="passive only (default; never probes)")
+    asl.set_defaults(func=cmd_assets)
+
+    rp = sub.add_parser("report", help="build reports")
+    rsub = rp.add_subparsers(dest="report_cmd", required=True)
+    rb = rsub.add_parser("build", parents=[common], help="build a consolidated report from stored findings")
+    rb.add_argument("--out", help="output folder")
+    rb.add_argument("--formats", help="comma-separated: html,markdown,json,csv,sarif,pdf")
+    rb.add_argument("--no-bundle", action="store_true", help="skip the evidence bundle")
+    rb.set_defaults(func=cmd_report)
+
+    svp = sub.add_parser("serve", help="serve the local dashboard (127.0.0.1)")
+    svp.add_argument("--host", default=None, help="bind host (default 127.0.0.1)")
+    svp.add_argument("--port", type=int, default=None, help="bind port (default 8788)")
+    svp.set_defaults(func=cmd_serve)
+
+    return p
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    # Propagate the top-level --json to handlers (they read args.json).
+    if not hasattr(args, "json"):
+        args.json = False
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        print("\ninterrupted", file=sys.stderr)
+        return 130
+    except BrokenPipeError:
+        return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

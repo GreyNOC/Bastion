@@ -1,0 +1,25 @@
+[
+  {
+    "group_name": "lockbit",
+    "post_title": "ACME Manufacturing",
+    "sector": "manufacturing",
+    "country": "US",
+    "discovered": "2026-05-12T10:14:00Z",
+    "description": "Listed on lockbit leak site; 80GB claimed"
+  },
+  {
+    "group_name": "alphv",
+    "post_title": "Regional Healthcare System",
+    "sector": "healthcare",
+    "country": "DE",
+    "discovered": "2026-05-15T07:00:00Z",
+    "description": "Listed on AlphV leak blog"
+  },
+  {
+    "group_name": "cl0p",
+    "post_title": "Fortune-500 Software Vendor",
+    "sector": "technology",
+    "country": "US",
+    "discovered": "2026-05-16T13:30:00Z"
+  }
+]

@@ -1,0 +1,19 @@
+{
+  "id": "GNOC-C2-001",
+  "name": "Outbound beaconing pattern",
+  "description": "Flags repeated synthetic outbound beacon connections.",
+  "severity": "high",
+  "data_source": "network",
+  "event_type": "network_event",
+  "match": {
+    "direction": "outbound",
+    "category": "beaconing"
+  },
+  "threshold": 5,
+  "window_minutes": 10,
+  "mitre": [
+    "TA0011",
+    "T1071.001"
+  ],
+  "runbook": "runbooks/c2-beaconing.md"
+}

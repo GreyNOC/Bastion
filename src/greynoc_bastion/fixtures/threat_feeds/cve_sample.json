@@ -1,0 +1,61 @@
+{
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2026-12345",
+        "published": "2026-05-01T12:00:00.000Z",
+        "lastModified": "2026-05-03T12:00:00.000Z",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "ExampleCorp Gateway contains a command injection vulnerability that may allow unauthenticated remote attackers to execute arbitrary commands."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "cvssData": {
+                "baseScore": 9.8,
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+              }
+            }
+          ]
+        },
+        "weaknesses": [
+          {
+            "description": [
+              {
+                "lang": "en",
+                "value": "CWE-78"
+              }
+            ]
+          }
+        ],
+        "configurations": [
+          {
+            "nodes": [
+              {
+                "cpeMatch": [
+                  {
+                    "criteria": "cpe:2.3:a:examplecorp:gateway:*:*:*:*:*:*:*:*"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "references": {
+          "referenceData": [
+            {
+              "url": "https://vendor.example/advisories/CVE-2026-12345"
+            },
+            {
+              "url": "https://github.com/security-research/CVE-2026-12345-poc"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+

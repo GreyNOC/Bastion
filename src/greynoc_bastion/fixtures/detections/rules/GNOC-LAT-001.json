@@ -1,0 +1,22 @@
+{
+  "id": "GNOC-LAT-001",
+  "name": "Remote root SSH session",
+  "description": "Flags a synthetic successful SSH login as root.",
+  "severity": "high",
+  "data_source": "auth",
+  "event_type": "auth_success",
+  "match": {
+    "message": {
+      "op": "regex",
+      "value": "(?i)accepted\\s.*for root"
+    },
+    "service": "ssh"
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": [
+    "TA0008",
+    "T1021.004"
+  ],
+  "runbook": "runbooks/remote-root-ssh.md"
+}

@@ -1,0 +1,21 @@
+{
+  "id": "GNOC-EVAS-001",
+  "name": "Log tampering",
+  "description": "Flags synthetic deletion or truncation of system logs.",
+  "severity": "high",
+  "data_source": "linux",
+  "event_type": "process_event",
+  "match": {
+    "message": {
+      "op": "regex",
+      "value": "(?i)(rm|truncate|shred)\\s.+/var/log"
+    }
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": [
+    "TA0005",
+    "T1070.002"
+  ],
+  "runbook": "runbooks/log-tampering.md"
+}

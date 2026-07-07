@@ -1,0 +1,7 @@
+name: deploy
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "deploying with $GH_TOKEN"

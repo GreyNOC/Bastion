@@ -1,0 +1,21 @@
+{
+  "id": "GNOC-EXEC-001",
+  "name": "Encoded PowerShell execution",
+  "description": "Flags a synthetic encoded PowerShell command line.",
+  "severity": "high",
+  "data_source": "edr",
+  "event_type": "process_event",
+  "match": {
+    "message": {
+      "op": "regex",
+      "value": "(?i)powershell\\s+.*-enc"
+    }
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": [
+    "TA0002",
+    "T1059.001"
+  ],
+  "runbook": "runbooks/encoded-powershell.md"
+}

@@ -1,0 +1,162 @@
+[
+  {
+    "timestamp": "2026-05-21T09:00:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "process_event",
+    "user": "jdoe",
+    "ip": "10.10.1.77",
+    "message": "powershell -enc SQBFAFgAIAAo",
+    "fields": {}
+  },
+  {
+    "timestamp": "2026-05-21T09:01:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "process_event",
+    "user": "jdoe",
+    "ip": "10.10.1.77",
+    "message": "sudo su -",
+    "fields": {}
+  },
+  {
+    "timestamp": "2026-05-21T09:02:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "process_event",
+    "user": "jdoe",
+    "ip": "10.10.1.77",
+    "message": "cat /etc/passwd",
+    "fields": {}
+  },
+  {
+    "timestamp": "2026-05-21T09:03:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "process_event",
+    "user": "jdoe",
+    "ip": "10.10.1.77",
+    "message": "crontab -e installed /tmp/.persist.sh",
+    "fields": {}
+  },
+  {
+    "timestamp": "2026-05-21T09:04:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "process_event",
+    "user": "jdoe",
+    "ip": "10.10.1.77",
+    "message": "tar czf /tmp/loot.tgz /home/jdoe/Documents",
+    "fields": {}
+  },
+  {
+    "timestamp": "2026-05-21T09:05:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "process_event",
+    "user": "root",
+    "ip": "10.10.1.77",
+    "message": "rm -rf /var/log/auth.log",
+    "fields": {}
+  },
+  {
+    "timestamp": "2026-05-21T09:06:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "file_event",
+    "user": "root",
+    "ip": "10.10.1.77",
+    "message": "mass rename to .encrypted across 500 files",
+    "fields": {}
+  },
+  {
+    "timestamp": "2026-05-21T09:07:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "auth_success",
+    "user": "root",
+    "ip": "10.10.1.77",
+    "message": "Accepted publickey for root from 10.10.1.77 port 22 ssh2",
+    "fields": {
+      "service": "ssh"
+    }
+  },
+  {
+    "timestamp": "2026-05-21T09:08:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "network_event",
+    "user": null,
+    "ip": "10.10.1.77",
+    "message": "outbound transfer to 203.0.113.10",
+    "fields": {
+      "direction": "outbound",
+      "bytes_out": 250000000
+    }
+  },
+  {
+    "timestamp": "2026-05-21T09:09:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "network_event",
+    "user": null,
+    "ip": "10.10.1.77",
+    "message": "outbound beacon to 203.0.113.20",
+    "fields": {
+      "direction": "outbound",
+      "category": "beaconing"
+    }
+  },
+  {
+    "timestamp": "2026-05-21T09:10:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "network_event",
+    "user": null,
+    "ip": "10.10.1.77",
+    "message": "outbound beacon to 203.0.113.20",
+    "fields": {
+      "direction": "outbound",
+      "category": "beaconing"
+    }
+  },
+  {
+    "timestamp": "2026-05-21T09:11:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "network_event",
+    "user": null,
+    "ip": "10.10.1.77",
+    "message": "outbound beacon to 203.0.113.20",
+    "fields": {
+      "direction": "outbound",
+      "category": "beaconing"
+    }
+  },
+  {
+    "timestamp": "2026-05-21T09:12:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "network_event",
+    "user": null,
+    "ip": "10.10.1.77",
+    "message": "outbound beacon to 203.0.113.20",
+    "fields": {
+      "direction": "outbound",
+      "category": "beaconing"
+    }
+  },
+  {
+    "timestamp": "2026-05-21T09:13:00Z",
+    "source": "lab",
+    "host": "range-host-09",
+    "event_type": "network_event",
+    "user": null,
+    "ip": "10.10.1.77",
+    "message": "outbound beacon to 203.0.113.20",
+    "fields": {
+      "direction": "outbound",
+      "category": "beaconing"
+    }
+  }
+]

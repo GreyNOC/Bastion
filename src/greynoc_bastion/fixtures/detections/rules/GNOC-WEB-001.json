@@ -1,0 +1,16 @@
+{
+  "id": "GNOC-WEB-001",
+  "name": "Web request containing SQL test string",
+  "description": "Flags a harmless SQL-pattern test string in local web access telemetry.",
+  "severity": "low",
+  "data_source": "web",
+  "event_type": "http_request",
+  "match": {
+    "path": { "op": "regex", "value": "union\\s+select" },
+    "status": { "op": "gte", "value": 400 }
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": ["TA0001", "T1190"],
+  "runbook": "runbooks/web-test-string.md"
+}

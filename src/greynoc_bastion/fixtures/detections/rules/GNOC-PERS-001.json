@@ -1,0 +1,21 @@
+{
+  "id": "GNOC-PERS-001",
+  "name": "Cron-based persistence",
+  "description": "Flags synthetic cron or service persistence changes.",
+  "severity": "medium",
+  "data_source": "linux",
+  "event_type": "process_event",
+  "match": {
+    "message": {
+      "op": "regex",
+      "value": "(?i)(crontab\\s+-[er]|/etc/cron|systemctl\\s+enable)"
+    }
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": [
+    "TA0003",
+    "T1053.003"
+  ],
+  "runbook": "runbooks/cron-persistence.md"
+}

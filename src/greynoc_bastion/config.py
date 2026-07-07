@@ -1,0 +1,212 @@
+"""Configuration for GreyNOC Bastion.
+
+Local-first, safe-by-default. Every default here is the conservative choice;
+turning anything more permissive on is an explicit operator decision made via
+environment variables or a ``.env`` file (env vars take precedence).
+
+No third-party settings library — a tiny, dependency-free ``.env`` reader keeps
+the MVP portable and auditable.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import os
+from pathlib import Path
+from typing import Dict, List, Optional
+
+_TRUE = {"1", "true", "yes", "on", "y"}
+_FALSE = {"0", "false", "no", "off", "n", ""}
+
+DEFAULT_ALLOWLIST = ["www.cisa.gov", "services.nvd.nist.gov", "api.first.org"]
+
+
+def _parse_bool(value: Optional[str], default: bool) -> bool:
+    if value is None:
+        return default
+    v = value.strip().lower()
+    if v in _TRUE:
+        return True
+    if v in _FALSE:
+        return False
+    return default
+
+
+def _parse_env_file(path: Path) -> Dict[str, str]:
+    """Minimal ``.env`` parser: ``KEY=VALUE`` lines, ``#`` comments, quotes."""
+    out: Dict[str, str] = {}
+    if not path.is_file():
+        return out
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key:
+            out[key] = val
+    return out
+
+
+@dataclasses.dataclass
+class BastionConfig:
+    """Resolved, immutable-ish runtime configuration."""
+
+    # Network / API
+    host: str = "127.0.0.1"
+    port: int = 8788
+
+    # Paths
+    home: Path = dataclasses.field(default_factory=lambda: Path.home() / ".greynoc-bastion")
+    db_path: Path = dataclasses.field(default_factory=lambda: Path.home() / ".greynoc-bastion" / "bastion.db")
+    report_dir: Path = dataclasses.field(default_factory=lambda: Path.home() / ".greynoc-bastion" / "reports")
+
+    # Live fetch (threat feeds)
+    live_fetch: bool = False
+    fetch_allowlist: List[str] = dataclasses.field(default_factory=lambda: list(DEFAULT_ALLOWLIST))
+    fetch_max_bytes: int = 10 * 1024 * 1024
+    fetch_timeout_seconds: int = 20
+
+    # Active local checks (Assets & Exposure)
+    active_checks: bool = False
+
+    # AI assistant
+    ai_assistant: bool = False
+    ai_command_execution: bool = False
+    ai_endpoint: str = ""
+    ai_allow_cloud: bool = False
+
+    # Logging
+    log_level: str = "INFO"
+
+    # Provenance for the Safety Status page: which knobs were changed from
+    # their safe defaults, and where the config was sourced from.
+    source: str = "defaults"
+
+    @property
+    def loopback_only(self) -> bool:
+        return self.host in {"127.0.0.1", "::1", "localhost"}
+
+    def ensure_dirs(self) -> "BastionConfig":
+        """Create the home and report directories if missing."""
+        self.home.mkdir(parents=True, exist_ok=True)
+        self.report_dir.mkdir(parents=True, exist_ok=True)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        return self
+
+    def public_dict(self) -> Dict[str, object]:
+        """A safe-to-display view (no secrets; there are none, but be explicit)."""
+        return {
+            "host": self.host,
+            "port": self.port,
+            "loopback_only": self.loopback_only,
+            "home": str(self.home),
+            "db_path": str(self.db_path),
+            "report_dir": str(self.report_dir),
+            "live_fetch": self.live_fetch,
+            "fetch_allowlist": list(self.fetch_allowlist),
+            "fetch_max_bytes": self.fetch_max_bytes,
+            "fetch_timeout_seconds": self.fetch_timeout_seconds,
+            "active_checks": self.active_checks,
+            "ai_assistant": self.ai_assistant,
+            "ai_command_execution": self.ai_command_execution,
+            "ai_endpoint_set": bool(self.ai_endpoint),
+            "ai_allow_cloud": self.ai_allow_cloud,
+            "log_level": self.log_level,
+            "source": self.source,
+        }
+
+
+def _resolve_path(base: Path, value: str, default: Path) -> Path:
+    if not value:
+        return default
+    p = Path(value).expanduser()
+    return p if p.is_absolute() else (base / p)
+
+
+def load_config(
+    env_file: Optional[Path] = None,
+    overrides: Optional[Dict[str, str]] = None,
+) -> BastionConfig:
+    """Build a :class:`BastionConfig` from ``.env`` + environment + overrides.
+
+    Precedence (low -> high): dataclass defaults, ``.env`` file, process
+    environment, explicit ``overrides``.
+    """
+    # Layer sources into one mapping.
+    layered: Dict[str, str] = {}
+    sources: List[str] = ["defaults"]
+
+    if env_file is None:
+        candidate = Path.cwd() / ".env"
+        env_file = candidate if candidate.is_file() else None
+    if env_file and Path(env_file).is_file():
+        layered.update(_parse_env_file(Path(env_file)))
+        sources.append(f"env-file:{env_file}")
+
+    env_keys = [
+        "BASTION_HOST", "BASTION_PORT", "BASTION_HOME", "BASTION_DB_PATH",
+        "BASTION_REPORT_DIR", "BASTION_LIVE_FETCH", "BASTION_FETCH_ALLOWLIST",
+        "BASTION_FETCH_MAX_BYTES", "BASTION_FETCH_TIMEOUT_SECONDS",
+        "BASTION_ACTIVE_CHECKS", "BASTION_AI_ASSISTANT",
+        "BASTION_AI_COMMAND_EXECUTION", "BASTION_AI_ENDPOINT",
+        "BASTION_AI_ALLOW_CLOUD", "BASTION_LOG_LEVEL",
+    ]
+    env_present = False
+    for k in env_keys:
+        if k in os.environ:
+            layered[k] = os.environ[k]
+            env_present = True
+    if env_present:
+        sources.append("environment")
+
+    if overrides:
+        layered.update(overrides)
+        sources.append("overrides")
+
+    def get(key: str, default: str = "") -> str:
+        return layered.get(key, default)
+
+    home_raw = get("BASTION_HOME")
+    home = Path(home_raw).expanduser() if home_raw else (Path.home() / ".greynoc-bastion")
+
+    db_path = _resolve_path(home, get("BASTION_DB_PATH", "bastion.db"), home / "bastion.db")
+    report_dir = _resolve_path(home, get("BASTION_REPORT_DIR", "reports"), home / "reports")
+
+    allowlist_raw = get("BASTION_FETCH_ALLOWLIST")
+    allowlist = (
+        [h.strip() for h in allowlist_raw.split(",") if h.strip()]
+        if allowlist_raw
+        else list(DEFAULT_ALLOWLIST)
+    )
+
+    def _int(key: str, default: int) -> int:
+        try:
+            return int(get(key, str(default)))
+        except (TypeError, ValueError):
+            return default
+
+    cfg = BastionConfig(
+        host=get("BASTION_HOST", "127.0.0.1") or "127.0.0.1",
+        port=_int("BASTION_PORT", 8788),
+        home=home,
+        db_path=db_path,
+        report_dir=report_dir,
+        live_fetch=_parse_bool(get("BASTION_LIVE_FETCH"), False),
+        fetch_allowlist=allowlist,
+        fetch_max_bytes=_int("BASTION_FETCH_MAX_BYTES", 10 * 1024 * 1024),
+        fetch_timeout_seconds=_int("BASTION_FETCH_TIMEOUT_SECONDS", 20),
+        active_checks=_parse_bool(get("BASTION_ACTIVE_CHECKS"), False),
+        ai_assistant=_parse_bool(get("BASTION_AI_ASSISTANT"), False),
+        ai_command_execution=_parse_bool(get("BASTION_AI_COMMAND_EXECUTION"), False),
+        ai_endpoint=get("BASTION_AI_ENDPOINT", ""),
+        ai_allow_cloud=_parse_bool(get("BASTION_AI_ALLOW_CLOUD"), False),
+        log_level=get("BASTION_LOG_LEVEL", "INFO") or "INFO",
+        source=" + ".join(sources),
+    )
+    return cfg

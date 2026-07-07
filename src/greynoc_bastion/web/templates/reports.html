@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Reports — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Reports &amp; Evidence</h1>
+  <div class="sub">Consolidated, evidence-backed reports · HTML · Markdown · JSON · CSV · SARIF · PDF · evidence bundle</div></div>
+</div>
+
+<div class="actions">
+  <form class="inline" method="post" action="{{ url_for('run_report') }}">
+    <button class="btn">Build consolidated report</button>
+  </form>
+  <span class="pill">Output: {{ config.report_dir }}</span>
+</div>
+
+<div class="panel">
+  <h2>Generated reports <span class="pill">{{ reports|length }}</span></h2>
+  {% if reports %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Report</th><th>Generated</th><th>Findings</th><th>Highest</th><th>Formats</th></tr></thead>
+    <tbody>
+    {% for r in reports %}
+      <tr>
+        <td><b>{{ r.title }}</b><div class="small muted mono">{{ r.report_id }}</div></td>
+        <td class="small">{{ r.generated_at }}</td>
+        <td class="mono">{{ r.summary.total_findings }}</td>
+        <td><span class="badge {{ r.summary.highest_severity.value }}">{{ r.summary.highest_severity.value }}</span></td>
+        <td class="small">{% for f in r.formats %}<span class="pill">{{ f.value }}</span> {% endfor %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No reports yet. Build one — it aggregates every stored finding into a single evidence-backed report
+  and writes all supported formats plus an integrity-checked evidence bundle.</p>
+  {% endif %}
+</div>
+{% endblock %}

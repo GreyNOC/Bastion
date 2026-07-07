@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Assets & Exposure — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Assets &amp; Exposure</h1>
+  <div class="sub">Local listening services · passive review · plain-English explanations</div></div>
+</div>
+
+<div class="actions">
+  <form class="inline" method="post" action="{{ url_for('run_assets') }}">
+    <button class="btn">Review local services (passive)</button>
+  </form>
+  <span class="pill">Active checks: {{ 'enabled' if config.active_checks else 'disabled (default)' }}</span>
+</div>
+
+<div class="banner ok small">
+  Passive review reads this machine's own socket table — no packets are sent. Bastion never probes public targets
+  and never changes device settings for you.
+</div>
+
+<div class="panel">
+  <h2>Reviewed services <span class="pill">{{ assets|length }}</span></h2>
+  {% if assets %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Severity</th><th>Service</th><th>Endpoint</th><th>Exposure</th><th>Risky</th><th>What it is</th></tr></thead>
+    <tbody>
+    {% for a in assets %}
+      <tr>
+        <td><span class="badge {{ a.severity.value }}">{{ a.severity.value }}</span></td>
+        <td>{{ a.service_name }}{% if a.is_dev_server %} <span class="pill">dev</span>{% endif %}</td>
+        <td class="mono small">{{ a.host }}:{{ a.port }}</td>
+        <td><span class="pill">{{ a.exposure.value }}</span></td>
+        <td>{% if a.risky %}<span class="badge medium">yes</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="small">{{ a.plain_explanation }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No services reviewed yet. Click <b>Review local services</b> to read this machine's listening ports.</p>
+  {% endif %}
+</div>
+{% endblock %}

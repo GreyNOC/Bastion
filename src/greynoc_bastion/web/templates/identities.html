@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Identity Blast Radius — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Identity Blast Radius</h1>
+  <div class="sub">Non-human identities in local repos — <b>secrets are masked; never validated or replayed</b></div></div>
+</div>
+
+<div class="actions">
+  <form class="inline" method="post" action="{{ url_for('run_identities') }}">
+    <input type="text" name="path" placeholder="repo/project path to scan"
+           value="{{ default_path }}">
+    <button class="btn">Scan for identities</button>
+  </form>
+</div>
+
+<div class="banner warn small">
+  Bastion stores only masked previews and one-way fingerprints. It never tests whether a credential is live.
+</div>
+
+<div class="panel">
+  <h2>Discovered identities <span class="pill">{{ identities|length }}</span></h2>
+  {% if identities %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Severity</th><th>Type</th><th>Provider</th><th>Masked preview</th><th>Location</th><th>Blast radius</th></tr></thead>
+    <tbody>
+    {% for i in identities %}
+      <tr>
+        <td><span class="badge {{ i.severity.value }}">{{ i.severity.value }}</span></td>
+        <td>{{ i.identity_type.value }}{% if i.privileged %} <span class="pill">priv</span>{% endif %}</td>
+        <td>{{ i.provider or '—' }}</td>
+        <td class="mono small">{{ i.masked_preview or '(no value)' }}</td>
+        <td class="mono small">{{ i.location }}{{ (':' ~ i.line) if i.line else '' }}</td>
+        <td class="small">{{ i.reachable_services[:3]|join(', ') }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No identities found yet. Scan a repository or project folder above.</p>
+  {% endif %}
+</div>
+{% endblock %}

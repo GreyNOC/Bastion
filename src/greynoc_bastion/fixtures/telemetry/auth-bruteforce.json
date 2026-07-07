@@ -1,0 +1,7 @@
+[
+  {"timestamp":"2026-05-19T14:00:00Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"alice","ip":"10.10.1.20","message":"failed login for alice","fields":{"service":"ssh"}},
+  {"timestamp":"2026-05-19T14:00:30Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"alice","ip":"10.10.1.20","message":"failed login for alice","fields":{"service":"ssh"}},
+  {"timestamp":"2026-05-19T14:01:00Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"alice","ip":"10.10.1.20","message":"failed login for alice","fields":{"service":"ssh"}},
+  {"timestamp":"2026-05-19T14:01:30Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"alice","ip":"10.10.1.20","message":"failed login for alice","fields":{"service":"ssh"}},
+  {"timestamp":"2026-05-19T14:02:00Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"alice","ip":"10.10.1.20","message":"failed login for alice","fields":{"service":"ssh"}}
+]

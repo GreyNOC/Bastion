@@ -1,0 +1,8 @@
+[
+  {"timestamp":"2026-05-19T16:00:00Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"bob","ip":"10.10.1.40","message":"failed login for bob","fields":{"service":"ssh"}},
+  {"timestamp":"2026-05-19T16:00:20Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"bob","ip":"10.10.1.40","message":"failed login for bob","fields":{"service":"ssh"}},
+  {"timestamp":"2026-05-19T16:00:40Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"bob","ip":"10.10.1.40","message":"failed login for bob","fields":{"service":"ssh"}},
+  {"timestamp":"2026-05-19T16:01:00Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"bob","ip":"10.10.1.40","message":"failed login for bob","fields":{"service":"ssh"}},
+  {"timestamp":"2026-05-19T16:01:20Z","source":"auth","host":"range-linux-01","event_type":"auth_failed","user":"bob","ip":"10.10.1.40","message":"failed login for bob","fields":{"service":"ssh"}},
+  {"timestamp":"2026-05-19T16:02:00Z","source":"linux","host":"range-linux-01","event_type":"process_event","user":"root","ip":null,"message":"synthetic check referenced /etc/shadow","fields":{"process":"cat","exit_code":1}}
+]

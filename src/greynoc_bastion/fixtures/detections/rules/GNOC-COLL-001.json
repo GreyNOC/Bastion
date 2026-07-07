@@ -1,0 +1,21 @@
+{
+  "id": "GNOC-COLL-001",
+  "name": "Sensitive data staged for collection",
+  "description": "Flags synthetic archiving of sensitive directories.",
+  "severity": "medium",
+  "data_source": "linux",
+  "event_type": "process_event",
+  "match": {
+    "message": {
+      "op": "regex",
+      "value": "(?i)(tar|zip|7z|rar)\\s.*(/home|/etc|/var)"
+    }
+  },
+  "threshold": 1,
+  "window_minutes": 5,
+  "mitre": [
+    "TA0009",
+    "T1560.001"
+  ],
+  "runbook": "runbooks/data-collection.md"
+}

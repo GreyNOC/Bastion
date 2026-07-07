@@ -1,0 +1,33 @@
+{
+  "rule_id": "GNOC-WEB-001",
+  "true_positive": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "http_request",
+      "user": null,
+      "ip": "10.10.1.50",
+      "message": "GET /p?q=union select 1",
+      "fields": {
+        "path": "/p?q=union select 1",
+        "status": 500
+      }
+    }
+  ],
+  "true_negative": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "http_request",
+      "user": null,
+      "ip": "10.10.1.50",
+      "message": "GET /p?q=union select 1",
+      "fields": {
+        "path": "/p?q=union select 1",
+        "status": 200
+      }
+    }
+  ]
+}

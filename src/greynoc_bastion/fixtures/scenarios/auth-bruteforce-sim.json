@@ -1,0 +1,9 @@
+{
+  "id": "auth-bruteforce-sim",
+  "name": "Repeated failed login simulation",
+  "team": "blue",
+  "description": "Replay synthetic authentication failures and confirm the auth detection fires.",
+  "telemetry_file": "telemetry/fixtures/auth-bruteforce.json",
+  "expected_rules": ["GNOC-AUTH-001"],
+  "notes": "Uses fake users and private lab IP addresses only."
+}

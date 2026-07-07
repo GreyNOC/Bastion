@@ -1,0 +1,9 @@
+{
+  "id": "web-test-string-sim",
+  "name": "Web test string simulation",
+  "team": "red",
+  "description": "Replay a harmless web request containing a SQL-like test string and confirm the web detection fires.",
+  "telemetry_file": "telemetry/fixtures/web-test-string.json",
+  "expected_rules": ["GNOC-WEB-001"],
+  "notes": "No exploit is executed. This is fixture telemetry only."
+}

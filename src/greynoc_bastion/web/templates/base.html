@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}GreyNOC Bastion{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='bastion.css') }}">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">GreyNOC <b>Bastion</b></div>
+      <div class="tag">Defensive command post</div>
+    </div>
+    <nav class="nav">
+      {% set page = active_page|default('') %}
+      <a href="{{ url_for('overview') }}" class="{{ 'active' if page=='overview' }}">Overview</a>
+      <a href="{{ url_for('forecast') }}" class="{{ 'active' if page=='forecast' }}">Threat Forecast</a>
+      <a href="{{ url_for('identities') }}" class="{{ 'active' if page=='identities' }}">Identity Blast Radius</a>
+      <a href="{{ url_for('detections') }}" class="{{ 'active' if page=='detections' }}">Detection Validation</a>
+      <a href="{{ url_for('playbooks') }}" class="{{ 'active' if page=='playbooks' }}">Operator Playbooks</a>
+      <a href="{{ url_for('assets') }}" class="{{ 'active' if page=='assets' }}">Assets &amp; Exposure</a>
+      <a href="{{ url_for('reports') }}" class="{{ 'active' if page=='reports' }}">Reports</a>
+      <a href="{{ url_for('settings') }}" class="{{ 'active' if page=='settings' }}">Settings</a>
+      <a href="{{ url_for('safety') }}" class="{{ 'active' if page=='safety' }}">
+        <span class="dot" style="background:var(--{{ 'ok' if posture=='hardened' else ('warn' if posture=='attention' else 'crit') }})"></span>
+        Safety Status
+      </a>
+    </nav>
+  </aside>
+  <main class="main">
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for m in messages %}<div class="banner ok">{{ m }}</div>{% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>

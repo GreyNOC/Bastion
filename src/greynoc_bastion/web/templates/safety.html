@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Safety Status — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Safety Status</h1>
+  <div class="sub">The live safety posture of this Bastion instance</div></div>
+  <span class="posture {{ safety.posture }}"><span class="dot"></span>{{ safety.posture|upper }}</span>
+</div>
+
+{% if safety.warnings %}
+  {% for w in safety.warnings %}<div class="banner warn">{{ w }}</div>{% endfor %}
+{% else %}
+  <div class="banner ok">All controls are at their safe defaults.</div>
+{% endif %}
+
+<div class="actions">
+  <form class="inline" method="post" action="{{ url_for('run_doctor') }}">
+    <button class="btn">Run doctor</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Controls</h2>
+  <div class="status-grid">
+    <div class="status-row"><span class="lab">Live fetching</span>
+      <span class="val {{ 'state-on' if safety.live_fetch_enabled else 'state-off' }}">{{ 'ENABLED' if safety.live_fetch_enabled else 'disabled' }}</span></div>
+    <div class="status-row"><span class="lab">Private host blocking</span>
+      <span class="val state-good">{{ 'on' if safety.private_host_blocking else 'off' }}</span></div>
+    <div class="status-row"><span class="lab">HTTPS only</span>
+      <span class="val state-good">{{ 'on' if safety.https_only else 'off' }}</span></div>
+    <div class="status-row"><span class="lab">API binding</span>
+      <span class="val">{{ safety.api_binding_host }}:{{ safety.api_binding_port }}</span></div>
+    <div class="status-row"><span class="lab">Loopback only</span>
+      <span class="val {{ 'state-good' if safety.loopback_only else 'state-on' }}">{{ safety.loopback_only }}</span></div>
+    <div class="status-row"><span class="lab">Report output path</span>
+      <span class="val mono small">{{ safety.report_output_path }}</span></div>
+    <div class="status-row"><span class="lab">Secret storage policy</span>
+      <span class="val state-good">masked-only</span></div>
+    <div class="status-row"><span class="lab">AI assistant</span>
+      <span class="val {{ 'state-on' if safety.ai_assistant_enabled else 'state-off' }}">{{ 'enabled' if safety.ai_assistant_enabled else 'disabled' }}</span></div>
+    <div class="status-row"><span class="lab">AI command execution</span>
+      <span class="val {{ 'state-on' if safety.ai_command_execution_enabled else 'state-off' }}">{{ 'ENABLED' if safety.ai_command_execution_enabled else 'disabled' }}</span></div>
+    <div class="status-row"><span class="lab">Active local checks</span>
+      <span class="val {{ 'state-on' if safety.active_checks_enabled else 'state-off' }}">{{ 'enabled' if safety.active_checks_enabled else 'disabled' }}</span></div>
+    <div class="status-row"><span class="lab">Last doctor result</span>
+      <span class="val">{{ safety.last_doctor_result or 'not run' }}{{ (' · ' ~ safety.last_doctor_at) if safety.last_doctor_at }}</span></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Allowed fetch hosts</h2>
+  {% if safety.allowed_fetch_hosts %}
+    {% for h in safety.allowed_fetch_hosts %}<span class="pill">{{ h }}</span> {% endfor %}
+  {% else %}
+    <span class="muted">none</span>
+  {% endif %}
+  <p class="small muted">{{ safety.active_checks_scope }}</p>
+</div>
+{% endblock %}

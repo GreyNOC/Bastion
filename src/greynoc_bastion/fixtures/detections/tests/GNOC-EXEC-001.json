@@ -1,0 +1,27 @@
+{
+  "rule_id": "GNOC-EXEC-001",
+  "true_positive": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "process_event",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "powershell -enc SQBFAFgA",
+      "fields": {}
+    }
+  ],
+  "true_negative": [
+    {
+      "timestamp": "2026-05-20T12:00:00Z",
+      "source": "lab",
+      "host": "range-host-01",
+      "event_type": "process_event",
+      "user": "alice",
+      "ip": "10.10.1.50",
+      "message": "powershell Get-ChildItem",
+      "fields": {}
+    }
+  ]
+}
