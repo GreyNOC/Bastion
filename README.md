@@ -126,6 +126,9 @@ Security policy: [`SECURITY.md`](SECURITY.md).
 - [`docs/MVP_ROADMAP.md`](docs/MVP_ROADMAP.md) — phased milestones.
 - [`docs/INTEGRATION_NOTES.md`](docs/INTEGRATION_NOTES.md) — which source repo
   contributed which functionality, and what was deliberately excluded.
+- [`docs/explanations/`](docs/explanations/) — per-engine technical walkthroughs
+  with Mermaid flowcharts (Threat Forecast, Identity Blast Radius, Detection
+  Validation, Assets & Exposure, Correlation Spine, Safety Layer).
 
 ---
 
