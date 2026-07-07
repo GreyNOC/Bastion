@@ -19,6 +19,7 @@ _MAX_PATTERN_LENGTH = 1000
 # (e.g. ``(\w+\s?)*``, ``(a+)+``, ``((a)+)+``) that pure shapes miss.
 _REDOS_SHAPES = [
     re.compile(r"\([^)]*[+*]\)[+*]"),          # (a+)+ , (a*)* nested quantifiers
+    re.compile(r"\([^)]*[+*][^)]*\)\{\d"),     # (a+){n} , (a+){n,m} bounded outer over unbounded inner
     re.compile(r"\([^)]*\|[^)]*\)[+*]"),       # (a|a)+ alternation under quantifier
     re.compile(r"[+*]\{[0-9]+,\}[+*]"),        # unbounded {n,} adjacent quantifier
     re.compile(r"(\.\*){3,}"),                  # .*.*.* repeated wildcards
@@ -31,10 +32,13 @@ _UNBOUNDED_QUANT = re.compile(r"[*+]|\{\d*,\}")
 def _has_dangerous_nesting(pattern: str) -> bool:
     """True if any quantified group's body contains an unbounded quantifier.
 
-    Walks balanced parentheses; for each group immediately followed by an
-    unbounded quantifier (``*``, ``+``, or ``{n,}``), checks whether the group
-    body itself contains an unbounded quantifier. That is the structural
-    signature of exponential backtracking and is engine-shape-agnostic.
+    Walks balanced parentheses; for each group immediately followed by an outer
+    quantifier — ``*``, ``+``, or ANY brace repetition ``{n}`` / ``{n,}`` /
+    ``{n,m}`` — checks whether the group body itself contains an unbounded
+    quantifier. A *bounded* outer quantifier over an unbounded inner group (e.g.
+    ``(a+){30}b``) backtracks just as catastrophically as ``(a+)+``, so bounded
+    braces count too. This is the structural signature of exponential
+    backtracking and is engine-shape-agnostic.
     """
     stack: list[int] = []           # indices of '(' after group-open bookkeeping
     i, n = 0, len(pattern)
@@ -58,8 +62,13 @@ def _has_dangerous_nesting(pattern: str) -> bool:
             # ``"" in "*+"`` is True in Python, which would false-positive on a
             # group that ends the pattern.)
             nxt = pattern[i + 1:i + 2]
-            outer_unbounded = nxt in ("*", "+") or bool(re.match(r"\{\d*,\}", pattern[i + 1:i + 8]))
-            if outer_unbounded and _UNBOUNDED_QUANT.search(body):
+            # Any brace repetition with a leading digit — {n}, {n,}, {n,m} —
+            # counts as an outer quantifier (a bounded {n} still backtracks
+            # catastrophically over an unbounded inner group). A bare {,m} or a
+            # non-numeric brace is treated as a literal, as before.
+            outer_quantified = nxt in ("*", "+") or bool(
+                re.match(r"\{\d+(?:,\d*)?\}", pattern[i + 1:i + 16]))
+            if outer_quantified and _UNBOUNDED_QUANT.search(body):
                 return True
         i += 1
     return False

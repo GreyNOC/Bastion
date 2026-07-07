@@ -43,9 +43,13 @@ Honest status: what is **delivered**, what is **in progress**, and what is
 - [x] `bastion evidence verify` command.
 - [x] Repo polish: dependabot, CONTRIBUTING, PR template, release process,
       threat model.
-- [ ] Guarded live-fetch fetcher wired to `netguard` (still off by default),
-      with per-source caching and offline fallback.
-- [ ] Custom rule-pack loader (ReDoS-guarded) for user detections and NHI rules.
+- [x] Guarded live-fetch fetcher wired to `netguard` (off by default): every
+      request and redirect is HTTPS-only, allowlisted, SSRF-blocked, and
+      size/time-capped (`bastion forecast ingest --url`).
+- [x] Custom detection rule-pack loader (`BASTION_RULES_DIR` /
+      `bastion detections load-custom`): linted + ReDoS-screened; accepted rules
+      stay drafts until validated.
+- [ ] Per-source fetch caching + offline fallback for live feeds.
 - [ ] Packaged distribution (portable build / wheels on release).
 
 ## Phase 2 — Scale & collaboration (planned)

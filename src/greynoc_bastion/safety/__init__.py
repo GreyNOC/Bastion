@@ -5,10 +5,15 @@ This package concentrates every hard safety rule in one auditable place:
   * ``masking``  — never emit a full secret; mask + fingerprint instead.
   * ``netguard`` — block private/loopback fetch targets; enforce HTTPS,
                    allowlists, and size/timeout caps when live fetch is on.
+  * ``fetcher``  — the only sanctioned outbound fetcher; routes every request
+                   (and redirect) through ``netguard``. Off unless enabled.
   * ``status``   — a single snapshot of the live safety posture for the
                    Safety Status page, ``doctor``, and tests.
 
-Nothing in Bastion should reimplement these rules; import from here.
+Nothing in Bastion should reimplement these rules; import from here. (The
+``fetcher`` module is imported directly — ``from greynoc_bastion.safety.fetcher
+import SafeFetcher`` — rather than re-exported here, to avoid an import cycle
+with the scrubbing logger.)
 """
 
 from __future__ import annotations

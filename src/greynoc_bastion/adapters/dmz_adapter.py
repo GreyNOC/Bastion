@@ -386,6 +386,66 @@ class DmzAdapter(BaseAdapter):
                 warnings += sum(1 for i in issues if i["severity"] == "warning")
         return {"clean": not results, "errors": errors, "warnings": warnings, "by_rule": results}
 
+    # --- custom (user-supplied) rule packs ----------------------------------
+    def load_custom_rules(self, rules_dir: Path) -> dict[str, Any]:
+        """Load and screen user detection rules from a directory.
+
+        Every candidate rule is linted (structure, MITRE ids, operator validity,
+        and — critically — the **ReDoS gate** on any regex) before acceptance. A
+        rule with any lint *error* is rejected with reasons; warnings are allowed.
+        Accepted rules are returned as data (the caller keeps them as DRAFT
+        detections — user rules are never auto-validated). Unreadable/oversized
+        files are skipped, never fatal.
+        """
+        rules_dir = Path(rules_dir)
+        accepted: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        if not rules_dir.is_dir():
+            return {"rules_dir": str(rules_dir), "accepted": [], "rejected": [],
+                    "note": "rules directory does not exist"}
+
+        # A custom rule must never reuse a bundled (validated) rule's id — that
+        # would let an unvalidated DRAFT overwrite a validated detection in the
+        # store (INSERT OR REPLACE by id). Reserve the bundled ids.
+        bundled_ids = {r.get("id") for r in self.load_rules() if r.get("id")}
+        seen_ids: set[str] = set()
+        for f in sorted(rules_dir.glob("*.json")):
+            try:
+                if f.stat().st_size > 512 * 1024:  # a detection rule is small
+                    rejected.append({"file": f.name, "id": None, "errors": ["file too large (>512KB)"]})
+                    continue
+                rule = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError, RecursionError) as exc:
+                # ValueError covers JSONDecodeError; RecursionError covers
+                # deeply-nested JSON. One bad file must never abort the load.
+                rejected.append({"file": f.name, "id": None, "errors": [f"unreadable: {type(exc).__name__}"]})
+                continue
+            if not isinstance(rule, dict):
+                rejected.append({"file": f.name, "id": None, "errors": ["rule is not a JSON object"]})
+                continue
+            rid = rule.get("id")
+            issues = self.lint_rule(rule)
+            errors = [i["message"] for i in issues if i["severity"] == "error"]
+            if rid and rid in bundled_ids:
+                errors.append(f"rule id '{rid}' collides with a bundled detection; choose a unique id")
+            if rid and rid in seen_ids:
+                errors.append(f"duplicate rule id '{rid}'")
+            if errors:
+                rejected.append({"file": f.name, "id": rid, "errors": errors})
+                continue
+            if rid:
+                seen_ids.add(rid)
+            rule["_source"] = "custom"
+            accepted.append(rule)
+
+        return {
+            "rules_dir": str(rules_dir),
+            "accepted": accepted,
+            "rejected": rejected,
+            "accepted_count": len(accepted),
+            "rejected_count": len(rejected),
+        }
+
     # --- ATT&CK coverage ----------------------------------------------------
     def build_coverage(self) -> dict[str, Any]:
         """Map the rule pack's ATT&CK coverage and surface tactic-level gaps."""

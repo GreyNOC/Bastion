@@ -46,7 +46,7 @@ class BastionApp:
         self.db = Database(self.config.db_path)
 
         # Services (constructed lazily-ish; cheap to build).
-        self.threat_forecast = ThreatForecastService(self.db)
+        self.threat_forecast = ThreatForecastService(self.db, config=self.config)
         self.identity = IdentityBlastRadiusService(self.db)
         self.detection = DetectionValidationService(self.db)
         self.assets = AssetExposureService(self.db)
@@ -174,6 +174,27 @@ class BastionApp:
     def lint_detections(self) -> dict[str, Any]:
         """Static-lint every detection rule."""
         return self.detection.dmz.lint_all()
+
+    def load_custom_rules(self, rules_dir: Path | None = None) -> dict[str, Any]:
+        """Load user detection rules (ReDoS-screened); persist accepted as DRAFTs.
+
+        Accepted rules are stored as DRAFT detections — user rules are never
+        auto-validated; they must pass the Detection Validation Range first.
+        """
+        target = Path(rules_dir) if rules_dir else self.config.rules_dir
+        if not target:
+            return {"accepted": [], "rejected": [], "accepted_count": 0, "rejected_count": 0,
+                    "note": "no rules directory (set BASTION_RULES_DIR or pass --rules)"}
+        result = self.detection.dmz.load_custom_rules(Path(target))
+        for rule in result.get("accepted", []):
+            det = self.detection.dmz.rule_to_detection(rule)  # status stays DRAFT
+            det.author = "custom"
+            self.db.save_detection(det)
+        if result.get("accepted") or result.get("rejected"):
+            self.db.audit("load_custom_rules", actor="detections",
+                          detail=f"accepted={result.get('accepted_count', 0)} "
+                                 f"rejected={result.get('rejected_count', 0)}")
+        return result
 
     def identity_risk_paths(self, path: Path) -> list[dict[str, Any]]:
         """Scan a repo and derive cross-identity blast-radius risk paths."""
