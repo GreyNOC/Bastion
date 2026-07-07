@@ -74,6 +74,12 @@ class BastionConfig:
     # Active local checks (Assets & Exposure)
     active_checks: bool = False
 
+    # Dashboard remote access (fail-closed). Resolved from .env + environment so
+    # a token placed in .env is honored (not only a real environment variable).
+    allow_remote_dashboard: bool = False
+    dashboard_token: str = ""
+    web_secret: str = ""
+
     # AI assistant
     ai_assistant: bool = False
     ai_command_execution: bool = False
@@ -112,6 +118,8 @@ class BastionConfig:
             "fetch_max_bytes": self.fetch_max_bytes,
             "fetch_timeout_seconds": self.fetch_timeout_seconds,
             "active_checks": self.active_checks,
+            "allow_remote_dashboard": self.allow_remote_dashboard,
+            "dashboard_token_set": bool(self.dashboard_token),  # never expose the value
             "ai_assistant": self.ai_assistant,
             "ai_command_execution": self.ai_command_execution,
             "ai_endpoint_set": bool(self.ai_endpoint),
@@ -152,7 +160,8 @@ def load_config(
         "BASTION_HOST", "BASTION_PORT", "BASTION_HOME", "BASTION_DB_PATH",
         "BASTION_REPORT_DIR", "BASTION_LIVE_FETCH", "BASTION_FETCH_ALLOWLIST",
         "BASTION_FETCH_MAX_BYTES", "BASTION_FETCH_TIMEOUT_SECONDS",
-        "BASTION_ACTIVE_CHECKS", "BASTION_AI_ASSISTANT",
+        "BASTION_ACTIVE_CHECKS", "BASTION_ALLOW_REMOTE_DASHBOARD",
+        "BASTION_DASHBOARD_TOKEN", "BASTION_WEB_SECRET", "BASTION_AI_ASSISTANT",
         "BASTION_AI_COMMAND_EXECUTION", "BASTION_AI_ENDPOINT",
         "BASTION_AI_ALLOW_CLOUD", "BASTION_LOG_LEVEL",
     ]
@@ -203,6 +212,9 @@ def load_config(
         fetch_max_bytes=_int("BASTION_FETCH_MAX_BYTES", 10 * 1024 * 1024),
         fetch_timeout_seconds=_int("BASTION_FETCH_TIMEOUT_SECONDS", 20),
         active_checks=_parse_bool(get("BASTION_ACTIVE_CHECKS"), False),
+        allow_remote_dashboard=get("BASTION_ALLOW_REMOTE_DASHBOARD").strip() == "1",
+        dashboard_token=get("BASTION_DASHBOARD_TOKEN", ""),
+        web_secret=get("BASTION_WEB_SECRET", ""),
         ai_assistant=_parse_bool(get("BASTION_AI_ASSISTANT"), False),
         ai_command_execution=_parse_bool(get("BASTION_AI_COMMAND_EXECUTION"), False),
         ai_endpoint=get("BASTION_AI_ENDPOINT", ""),
