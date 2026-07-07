@@ -103,6 +103,40 @@ These were flagged in the audit and are **not** present in Bastion:
 - **Committed build artifacts / live state** (GreyIQ `dist/`, `runtime/` session
   tokens, `elevate.exe`; stale wheels; `.venv`/`node_modules`). Never imported.
 
+## QA/QC hardening pass
+
+After the initial build, an adversarial multi-agent review (8 module reviewers,
+each finding verified by an independent refuter) plus dynamic fuzzing surfaced
+and fixed the following, all now covered by regression tests:
+
+- **Secret-leak backstop gaps.** `affected`/`source` were not scrubbed in the
+  SARIF and HTML renderers; the AWS-key regex used a capturing group that
+  redacted only the `AKIA` prefix (and collapsed all AWS keys to one
+  fingerprint); the prompt-injection excerpt and the CSV `source` column were
+  unscrubbed; the high-entropy backstop required a digit (missing all-letter
+  tokens); and the identity masking invariant let short/`*`-containing raw
+  values through. All closed.
+- **CSV formula injection.** Report CSV cells beginning with `= + - @` are now
+  neutralized (OWASP CSV Injection).
+- **Evidence-bundle zip-slip.** A `correlation_id` with `../` could produce a
+  traversing archive entry; entry names are now sanitized.
+- **Detection matching.** Scalar matches are now exact equality (substring
+  over-matched, e.g. `200` inside `2000`); the two free-text `message` rules use
+  an explicit `contains` op. Group-by now resolves `host`/`user` from nested
+  `fields`. A regex refused by the ReDoS guard is logged instead of silently
+  never matching.
+- **ReDoS guard.** Broadened to reject the general "unbounded quantifier nested
+  in a quantified group" family (e.g. `(\w+\s?)*`) that the shape heuristics
+  missed; the high-entropy scrub pattern is length-bounded so it stays
+  linear-time.
+- **Robustness.** `from_dict` no longer crashes on non-iterable list values or
+  writes `None` into a non-optional enum field (falls back to the field
+  default); EPSS is clamped to [0,1] and CVSS is numerically coerced; validation
+  now passes the all-clear case (nothing expected, nothing fired); DB severity
+  ordering uses true rank, not alphabetical text; `verify_bundle` reports
+  malformed archives instead of raising; `BASTION_HOME` is resolved to an
+  absolute path; the Flask session key is per-process, not a committed constant.
+
 ## Highest-value, lowest-risk imports (as identified by the audit)
 
 1. Detector-Engine scoring/forecast concepts + feed fixtures → Threat Forecast.

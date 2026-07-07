@@ -54,6 +54,16 @@ def test_true_negative_set_stays_silent():
     assert alerts == []
 
 
+def test_scalar_match_is_exact_not_substring():
+    # Scalar equality must be exact: "200" must NOT match "2000" (over-match),
+    # while an explicit contains op still does substring matching.
+    from greynoc_bastion.adapters.dmz_adapter import _match_condition
+    assert _match_condition({"status": "2000"}, "status", "200") is False
+    assert _match_condition({"status": "200"}, "status", "200") is True
+    assert _match_condition({"message": "failed login for alice"}, "message",
+                            {"op": "contains", "value": "failed login"}) is True
+
+
 def test_service_persists_validation(app):
     results = app.detection.validate_all(persist=True)
     assert results

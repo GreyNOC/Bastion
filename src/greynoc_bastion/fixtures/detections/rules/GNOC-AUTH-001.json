@@ -6,10 +6,16 @@
   "data_source": "auth",
   "event_type": "auth_failed",
   "match": {
-    "message": "failed login"
+    "message": {
+      "op": "contains",
+      "value": "failed login"
+    }
   },
   "threshold": 5,
   "window_minutes": 10,
-  "mitre": ["TA0006", "T1110"],
+  "mitre": [
+    "TA0006",
+    "T1110"
+  ],
   "runbook": "runbooks/auth-bruteforce.md"
 }

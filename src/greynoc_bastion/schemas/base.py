@@ -87,33 +87,56 @@ class BastionModel:
         for f in dataclasses.fields(cls):
             if f.name not in data:
                 continue
-            kwargs[f.name] = _coerce_value(hints.get(f.name), data[f.name])
+            kwargs[f.name] = _coerce_value(hints.get(f.name), data[f.name], _field_default(f))
         return cls(**kwargs)  # type: ignore[arg-type]
 
 
-def _coerce_value(ftype: Any, value: Any) -> Any:
+def _field_default(f: dataclasses.Field):
+    """The declared default of a dataclass field, or None if it has none."""
+    if f.default is not dataclasses.MISSING:
+        return f.default
+    if f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+        try:
+            return f.default_factory()  # type: ignore[misc]
+        except Exception:  # pragma: no cover - defensive
+            return None
+    return None
+
+
+def _coerce_value(ftype: Any, value: Any, default: Any = None) -> Any:
     """Best-effort coercion of a raw value onto a resolved type annotation."""
     if ftype is None or value is None:
         return value
 
     origin = get_origin(ftype)
     if origin in (list, set, tuple):
+        # Guard against a non-sequence value (e.g. a scalar where a list is
+        # expected). str/bytes are iterable but must not be char-exploded.
+        if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple, set)):
+            return value
         (inner,) = (get_args(ftype) or (None,))[:1] or (None,)
-        seq = [_coerce_value(inner, v) for v in value]
-        return seq
+        return [_coerce_value(inner, v) for v in value]
     if origin is dict:
         return value  # dicts are passed through untouched
     if origin is typing.Union:  # Optional[X] and unions
         args = [a for a in get_args(ftype) if a is not type(None)]
         if len(args) == 1:
-            return _coerce_value(args[0], value)
+            return _coerce_value(args[0], value, default)
         return value
 
     if isinstance(ftype, type) and issubclass(ftype, Enum):
         coerce = getattr(ftype, "coerce", None)
         if callable(coerce):
-            return coerce(value)
-        return ftype(value)
+            # Fall back to the field's declared default (a valid enum member)
+            # so an unknown value can never leave None in a non-optional field.
+            result = coerce(value, default if isinstance(default, ftype) else None)
+            if result is None:
+                result = coerce(value, next(iter(ftype)))
+            return result
+        try:
+            return ftype(value)
+        except ValueError:
+            return default if isinstance(default, ftype) else next(iter(ftype))
     if isinstance(ftype, type) and issubclass(ftype, BastionModel) and isinstance(value, dict):
         return ftype.from_dict(value)
     return value

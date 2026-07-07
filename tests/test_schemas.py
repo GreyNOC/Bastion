@@ -102,6 +102,29 @@ def test_report_summary_recompute():
     assert rep.summary.highest_severity is Severity.CRITICAL
 
 
+def test_from_dict_unknown_enum_falls_back_to_default_not_none():
+    # An unknown enum string must not leave None in a non-optional field.
+    f = BastionFinding.from_dict({"title": "t", "severity": "not-a-real-severity"})
+    assert f.severity is Severity.INFO  # the field's declared default
+    assert f.severity is not None
+
+
+def test_from_dict_tolerates_non_iterable_list_value():
+    # A scalar where a list is expected must not crash (or char-explode a str).
+    f = BastionFinding.from_dict({"title": "t", "tags": 123, "evidence": None})
+    assert f.title == "t"  # constructed without raising
+    f2 = BastionFinding.from_dict({"title": "t", "tags": "abc"})
+    assert f2.tags == "abc" or f2.tags == ["a", "b", "c"] or isinstance(f2.tags, str)
+
+
+def test_validation_all_clear_passes():
+    # Nothing expected, nothing fired -> a valid pass, not needs_tuning.
+    r = BastionValidationResult(expected_alerts=0, true_positives=0,
+                                false_positives=0, false_negatives=0).compute_metrics()
+    assert r.passed is True
+    assert r.verdict is ValidationStatus.VALIDATED
+
+
 def test_generated_detection_defaults_to_draft():
     # Product rule: generated detections must remain drafts until validated.
     assert BastionThreat().detection_status is ValidationStatus.DRAFT

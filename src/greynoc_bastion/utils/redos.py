@@ -14,13 +14,56 @@ from typing import Optional, Tuple
 _MAX_PATTERN_LENGTH = 1000
 
 # Shapes associated with catastrophic backtracking. These are heuristics; when
-# in doubt the pattern is refused (fail closed).
+# in doubt the pattern is refused (fail closed). The regex shapes catch simple
+# adjacent forms; ``_has_dangerous_nesting`` (below) catches the more general
+# "quantified group whose body itself contains an unbounded quantifier" family
+# (e.g. ``(\w+\s?)*``, ``(a+)+``, ``((a)+)+``) that pure shapes miss.
 _REDOS_SHAPES = [
     re.compile(r"\([^)]*[+*]\)[+*]"),          # (a+)+ , (a*)* nested quantifiers
     re.compile(r"\([^)]*\|[^)]*\)[+*]"),       # (a|a)+ alternation under quantifier
     re.compile(r"[+*]\{[0-9]+,\}[+*]"),        # unbounded {n,} adjacent quantifier
     re.compile(r"(\.\*){3,}"),                  # .*.*.* repeated wildcards
 ]
+
+# An unbounded quantifier: * + or {n,} (with no upper bound).
+_UNBOUNDED_QUANT = re.compile(r"[*+]|\{\d*,\}")
+
+
+def _has_dangerous_nesting(pattern: str) -> bool:
+    """True if any quantified group's body contains an unbounded quantifier.
+
+    Walks balanced parentheses; for each group immediately followed by an
+    unbounded quantifier (``*``, ``+``, or ``{n,}``), checks whether the group
+    body itself contains an unbounded quantifier. That is the structural
+    signature of exponential backtracking and is engine-shape-agnostic.
+    """
+    stack: list[int] = []           # indices of '(' after group-open bookkeeping
+    i, n = 0, len(pattern)
+    while i < n:
+        c = pattern[i]
+        if c == "\\":
+            i += 2                  # skip escaped char
+            continue
+        if c == "[":                # skip character class (parens inside are literal)
+            i += 1
+            while i < n and pattern[i] != "]":
+                i += 2 if pattern[i] == "\\" else 1
+            i += 1
+            continue
+        if c == "(":
+            stack.append(i)
+        elif c == ")" and stack:
+            start = stack.pop()
+            body = pattern[start + 1:i]
+            # What immediately follows the closing paren? (Use tuple membership:
+            # ``"" in "*+"`` is True in Python, which would false-positive on a
+            # group that ends the pattern.)
+            nxt = pattern[i + 1:i + 2]
+            outer_unbounded = nxt in ("*", "+") or bool(re.match(r"\{\d*,\}", pattern[i + 1:i + 8]))
+            if outer_unbounded and _UNBOUNDED_QUANT.search(body):
+                return True
+        i += 1
+    return False
 
 
 def is_safe_regex(pattern: str) -> Tuple[bool, str]:
@@ -32,6 +75,8 @@ def is_safe_regex(pattern: str) -> Tuple[bool, str]:
     for shape in _REDOS_SHAPES:
         if shape.search(pattern):
             return False, "pattern matches a known catastrophic-backtracking shape"
+    if _has_dangerous_nesting(pattern):
+        return False, "pattern nests an unbounded quantifier inside a quantified group"
     try:
         re.compile(pattern)
     except re.error as exc:

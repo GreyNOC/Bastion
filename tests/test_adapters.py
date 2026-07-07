@@ -52,6 +52,31 @@ def test_playbooks_adapter_empty_dir(tmp_path):
     assert a.load_all() == []
 
 
+def test_playbook_get_exact_then_unambiguous(fixtures_dir):
+    a = PlaybooksAdapter()
+    # exact slug
+    assert a.get("18-ransomware").slug == "18-ransomware"
+    # ambiguous partial ("pq" matches many crypto playbooks) -> None, not the first
+    assert a.get("pq") is None
+    # unambiguous partial resolves
+    assert a.get("ransomware").slug == "18-ransomware"
+
+
+def test_detector_epss_clamped_and_cvss_coerced():
+    a = DetectorEngineAdapter()
+    epss = a.parse_epss_feed({"data": [
+        {"cve": "A", "epss": "1.7"}, {"cve": "B", "epss": "-0.3"}, {"cve": "C", "epss": "x"},
+    ]})
+    assert epss == {"A": 1.0, "B": 0.0}          # clamped to [0,1]; non-numeric dropped
+    # non-numeric CVSS must not crash scoring
+    parsed = a.parse_cve_feed({"vulnerabilities": [
+        {"cve": {"id": "CVE-1", "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": "bad"}}]}}},
+    ]})
+    score = a.score_threat(parsed["CVE-1"], epss=0.0)
+    assert 0.0 <= score.urgency <= 1.0
+    assert score.evidence_strength >= 0.6         # epss=0.0 still earns evidence credit
+
+
 def test_homeguard_classifies_risky_ports():
     a = HomeGuardAdapter()
     assets = a.review_observations([{"host": "0.0.0.0", "port": 3389, "exposure": "lan"}])

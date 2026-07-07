@@ -107,3 +107,34 @@ def test_raise_if_blocked_raises():
 def test_redirect_to_private_host_is_refused():
     d = validate_redirect("https://10.0.0.1/internal", allowlist=["www.cisa.gov"])
     assert not d.allowed
+
+
+# --- QA/QC regressions -------------------------------------------------------
+def test_aws_key_fully_redacted_and_distinct_fingerprints():
+    # Non-capturing AKIA group: the whole key is redacted (not just "AKIA"),
+    # and two different AWS keys must not collapse to the same fingerprint.
+    from greynoc_bastion.safety.masking import iter_secret_matches
+    k1, k2 = "AKIAIOSFODNN7EXAMPLE", "AKIA1234567890ABCDEF"
+    assert scrub_text(k1) == "***REDACTED***"
+    toks = [t for name, t in iter_secret_matches(f"{k1} {k2}") if name == "aws_access_key"]
+    assert toks == [k1, k2]
+    assert fingerprint_secret(k1) != fingerprint_secret(k2)
+
+
+def test_scrub_catches_all_letter_high_entropy_token():
+    # The fix: a long all-letter token (no digit) is now redacted — previously
+    # the high_entropy_token backstop required a digit and missed it.
+    assert scrub_text("abcdEFGHijklMNOPqrstUVWXyzABCDefghIJKL") == "***REDACTED***"
+    # Ordinary short text/numbers are left alone (no over-redaction).
+    assert scrub_text("port 8080 is open") == "port 8080 is open"
+    assert scrub_text("account 1234567890") == "account 1234567890"
+
+
+def test_redos_guard_refuses_nested_quantifier():
+    from greynoc_bastion.utils.redos import is_safe_regex
+    for bad in [r"(\w+\s?)*$", r"(a+)+", r"((a)+)+", r"(a|a)+"]:
+        ok, _ = is_safe_regex(bad)
+        assert not ok, bad
+    # Legitimate patterns still allowed.
+    for good in [r"(abc)+", r"foo|bar", r"(?i)(getent\s+passwd|cat\s+/etc/passwd)"]:
+        assert is_safe_regex(good)[0], good

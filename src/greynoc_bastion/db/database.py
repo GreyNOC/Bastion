@@ -81,12 +81,16 @@ class Database:
             )
 
     def list_threats(self, limit: int = 100) -> List[BastionThreat]:
+        # Order by urgency in SQL; break ties by true severity rank in Python
+        # (the severity column is text, so a SQL sort would be alphabetical and
+        # rank "medium" above "high"/"critical").
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT data FROM threats ORDER BY urgency DESC, severity DESC LIMIT ?",
-                (limit,),
+                "SELECT data FROM threats ORDER BY urgency DESC LIMIT ?", (limit,)
             ).fetchall()
-        return [BastionThreat.from_dict(json.loads(r["data"])) for r in rows]
+        threats = [BastionThreat.from_dict(json.loads(r["data"])) for r in rows]
+        threats.sort(key=lambda t: (t.score.urgency, t.severity.rank), reverse=True)
+        return threats
 
     # --- identities ----------------------------------------------------------
     def save_identity(self, i: BastionIdentity) -> None:
@@ -178,9 +182,12 @@ class Database:
     def list_assets(self, limit: int = 500) -> List[BastionAsset]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT data FROM assets ORDER BY risky DESC, severity DESC LIMIT ?", (limit,)
+                "SELECT data FROM assets ORDER BY risky DESC LIMIT ?", (limit,)
             ).fetchall()
-        return [BastionAsset.from_dict(json.loads(r["data"])) for r in rows]
+        assets = [BastionAsset.from_dict(json.loads(r["data"])) for r in rows]
+        # Re-sort by true severity rank in Python (SQL text sort is alphabetical).
+        assets.sort(key=lambda a: (a.risky, a.severity.rank), reverse=True)
+        return assets
 
     # --- findings ------------------------------------------------------------
     def save_finding(self, f: BastionFinding) -> None:

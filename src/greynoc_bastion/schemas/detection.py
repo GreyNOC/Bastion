@@ -84,7 +84,10 @@ class BastionValidationResult(BastionModel):
         tp, fp, fn = self.true_positives, self.false_positives, self.false_negatives
         self.precision = tp / (tp + fp) if (tp + fp) else None
         self.recall = tp / (tp + fn) if (tp + fn) else None
-        if fn == 0 and fp == 0 and tp > 0:
+        if fp == 0 and fn == 0:
+            # Observed behavior matched expectations exactly. This includes the
+            # all-clear case (nothing should fire and nothing did), which is a
+            # valid pass, not a tuning gap.
             self.verdict = ValidationStatus.VALIDATED
             self.passed = True
         elif tp == 0 and self.expected_alerts > 0:

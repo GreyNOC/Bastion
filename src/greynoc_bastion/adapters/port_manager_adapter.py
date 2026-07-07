@@ -158,12 +158,16 @@ class PortManagerAdapter(BaseAdapter):
         return out
 
     def _parse_ss(self, raw: str) -> List[Dict[str, Any]]:
+        # Input comes from `ss -ltnH` / `netstat -ltn`; the `-l` flag already
+        # restricts output to LISTENING sockets, so no per-line state filter is
+        # needed. If the state column is present, only keep LISTEN lines as a
+        # defensive backstop.
         out: List[Dict[str, Any]] = []
         seen: set = set()
         for line in raw.splitlines():
-            if "LISTEN" not in line.upper() and not line.strip().startswith(("tcp", "LISTEN")):
-                # ss -ltnH omits the state column header; accept lines with an addr:port.
-                pass
+            up = line.upper()
+            if ("ESTAB" in up or "TIME-WAIT" in up or "CLOSE" in up or "SYN-" in up):
+                continue  # not a listener
             m = re.search(r"(\S+):(\d+)\s", line)
             if not m:
                 continue
