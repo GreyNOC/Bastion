@@ -171,6 +171,37 @@ Without both the override and the token, `serve` exits with an error rather than
 exposing an unauthenticated dashboard. Prefer an SSH tunnel to a loopback bind
 over remote exposure where possible.
 
+## Ingesting a live threat feed (opt-in)
+
+Live fetching is off by default. When you enable it, Bastion can pull a CVE feed
+over a **guarded** HTTPS request:
+
+```bash
+export BASTION_LIVE_FETCH=true
+export BASTION_FETCH_ALLOWLIST="services.nvd.nist.gov,www.cisa.gov"
+bastion forecast ingest --url https://services.nvd.nist.gov/rest/json/cves/2.0
+```
+
+Every request — and every redirect — is evaluated by the network guard: HTTPS
+only, host must be on your allowlist, must not resolve to a private/loopback/
+CGNAT/test-net address (SSRF), and the response is size- and time-capped. Without
+`BASTION_LIVE_FETCH=true` and an allowlisted host, the fetch is refused with a
+clear message. Offline ingestion (`--fixture <file>`) needs none of this.
+
+## Adding your own detection rules
+
+Point Bastion at a directory of rule JSON files:
+
+```bash
+export BASTION_RULES_DIR=/path/to/my/rules
+bastion detections load-custom          # or: --rules /path/to/my/rules
+```
+
+Each rule is linted and **ReDoS-screened** on load. Rules with structural errors
+or unsafe regexes are rejected with reasons; accepted rules are stored as
+**drafts** and must pass the Detection Validation Range before they count as
+validated (`bastion detections validate`).
+
 ## Turning on optional capabilities
 
 All optional capabilities are configured via environment variables or a `.env` file
@@ -179,7 +210,8 @@ will warn you about anything now off its safe default.
 
 | To enable | Set | Note |
 | --- | --- | --- |
-| Live threat-feed fetching | `BASTION_LIVE_FETCH=true` + `BASTION_FETCH_ALLOWLIST=…` | HTTPS-only, allowlisted, capped, private hosts refused |
+| Live threat-feed fetching | `BASTION_LIVE_FETCH=true` + `BASTION_FETCH_ALLOWLIST=…` | HTTPS-only, allowlisted, capped, private hosts refused, redirects re-checked |
+| Custom detection rules | `BASTION_RULES_DIR=/path/to/rules` | Linted + ReDoS-screened on load; accepted rules stay drafts |
 | The AI assistant | `BASTION_AI_ASSISTANT=true` | Local, explain/summarize/ticket only |
 | A local model endpoint | `BASTION_AI_ENDPOINT=http://127.0.0.1:11434` | Cloud refused unless `BASTION_AI_ALLOW_CLOUD=true` |
 

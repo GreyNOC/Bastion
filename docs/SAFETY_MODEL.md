@@ -56,7 +56,9 @@ where each rule is enforced.
 | AI command execution disabled + refused | `adapters/greyiq_adapter.py` | `test_adapters.py` |
 | Active local checks gated + logged | `services/asset_exposure.py` | `test_cli_and_app.py` |
 | Generated detections stay drafts until validated | `schemas/`, `adapters/detections_adapter.py` | `test_schemas.py`, `test_detection_validation.py` |
-| Rule regexes screened for ReDoS | `utils/redos.py`, `adapters/dmz_adapter.py` | — |
+| Rule regexes screened for ReDoS | `utils/redos.py`, `adapters/dmz_adapter.py` | `test_live_fetch_and_rules.py` |
+| Live fetch routes every request + redirect through the guard | `safety/fetcher.py` | `test_live_fetch_and_rules.py` |
+| Custom rules are ReDoS-screened + linted before load; stay drafts | `adapters/dmz_adapter.py` `load_custom_rules` | `test_live_fetch_and_rules.py` |
 | Offensive playbooks excluded | `adapters/playbooks_adapter.py` | `test_adapters.py` |
 
 ## Live fetching (when you turn it on)

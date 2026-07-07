@@ -94,10 +94,21 @@ def cmd_forecast(args) -> int:
     if args.forecast_cmd == "demo":
         threats = app.threat_forecast.demo(sectors=sectors, persist=args.persist)
     elif args.forecast_cmd == "ingest":
-        if not args.fixture:
-            print("error: --fixture is required for 'forecast ingest'", file=sys.stderr)
+        url = getattr(args, "url", None)
+        if url:
+            # Guarded live fetch (off by default). Refuses unless live fetching
+            # is enabled; HTTPS-only, allowlisted, SSRF-blocked, size/time-capped.
+            try:
+                threats = app.threat_forecast.ingest_url(url, sectors=sectors, persist=True)
+            except Exception as exc:  # noqa: BLE001 - surface a clear operator message
+                print(f"error: live fetch refused or failed: {exc}", file=sys.stderr)
+                return 2
+        elif args.fixture:
+            threats = app.threat_forecast.ingest(Path(args.fixture), sectors=sectors, persist=True)
+        else:
+            print("error: 'forecast ingest' needs --fixture <path> or --url <https-url>",
+                  file=sys.stderr)
             return 2
-        threats = app.threat_forecast.ingest(Path(args.fixture), sectors=sectors, persist=True)
     else:
         print("error: unknown forecast subcommand", file=sys.stderr)
         return 2
@@ -330,6 +341,25 @@ def cmd_forecast_export(args) -> int:
     return 0
 
 
+def cmd_load_custom(args) -> int:
+    app = _app(args)
+    rules_dir = Path(args.rules) if getattr(args, "rules", None) else None
+    result = app.load_custom_rules(rules_dir)
+    if args.json:
+        _print_json(result)
+        return 0 if not result.get("rejected") else 1
+    if result.get("note"):
+        print(result["note"])
+        return 0
+    print(f"Custom rules — {result['accepted_count']} accepted, {result['rejected_count']} rejected "
+          f"(from {result['rules_dir']})\n")
+    for r in result.get("accepted", []):
+        print(f"  [ok]   {r.get('id', '?'):16} {r.get('name', '')[:50]}  (DRAFT until validated)")
+    for r in result.get("rejected", []):
+        print(f"  [FAIL] {str(r.get('id') or r.get('file')):16} {'; '.join(r.get('errors', []))[:80]}")
+    return 0 if not result.get("rejected") else 1
+
+
 def cmd_evidence(args) -> int:
     app = _app(args)
     if args.evidence_cmd != "verify":
@@ -419,8 +449,11 @@ def build_parser() -> argparse.ArgumentParser:
     fd.add_argument("--sectors", help="comma-separated sector relevance hints")
     fd.add_argument("--persist", action="store_true", help="store threats + findings")
     fd.set_defaults(func=cmd_forecast)
-    fi = fsub.add_parser("ingest", parents=[common], help="forecast from a CVE-feed JSON fixture (offline)")
-    fi.add_argument("--fixture", required=True, help="path to a CVE feed JSON")
+    fi = fsub.add_parser("ingest", parents=[common],
+                         help="forecast from a CVE-feed JSON fixture (offline) or a guarded URL")
+    fisrc = fi.add_mutually_exclusive_group(required=True)
+    fisrc.add_argument("--fixture", help="path to a CVE feed JSON (offline)")
+    fisrc.add_argument("--url", help="HTTPS CVE-feed URL; requires BASTION_LIVE_FETCH=true and allowlist")
     fi.add_argument("--sectors", help="comma-separated sector relevance hints")
     fi.add_argument("--pretty", action="store_true")
     fi.set_defaults(func=cmd_forecast, persist=True)
@@ -447,6 +480,10 @@ def build_parser() -> argparse.ArgumentParser:
     dco.set_defaults(func=cmd_coverage)
     dln = desub.add_parser("lint", parents=[common], help="static-lint the detection rule pack")
     dln.set_defaults(func=cmd_lint)
+    dlc = desub.add_parser("load-custom", parents=[common],
+                           help="load user detection rules (ReDoS-screened; accepted stay drafts)")
+    dlc.add_argument("--rules", help="directory of custom rule JSON files (default: BASTION_RULES_DIR)")
+    dlc.set_defaults(func=cmd_load_custom)
 
     pp = sub.add_parser("playbooks", help="operator playbooks")
     psub = pp.add_subparsers(dest="playbooks_cmd", required=True)
