@@ -13,10 +13,9 @@ detect and prioritize. It contains no procedure, payload, or how-to content.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional
 
 # --- tactics (enterprise, catalog order) ------------------------------------
-ATTACK_TACTICS: Dict[str, str] = {
+ATTACK_TACTICS: dict[str, str] = {
     "TA0043": "Reconnaissance",
     "TA0042": "Resource Development",
     "TA0001": "Initial Access",
@@ -36,7 +35,7 @@ ATTACK_TACTICS: Dict[str, str] = {
 # --- techniques: id -> (name, tactic_id) ------------------------------------
 # Curated to cover Bastion's playbooks, the GNOC detection pack, and the common
 # CVE-driven initial-access / execution / impact techniques.
-TECHNIQUES: Dict[str, Dict[str, str]] = {
+TECHNIQUES: dict[str, dict[str, str]] = {
     # Initial Access
     "T1190": {"name": "Exploit Public-Facing Application", "tactic": "TA0001"},
     "T1133": {"name": "External Remote Services", "tactic": "TA0001"},
@@ -117,7 +116,7 @@ TECHNIQUES: Dict[str, Dict[str, str]] = {
 # --- inference: CVE/advisory phrase -> technique ids -------------------------
 # Ordered, longest/most-specific first. Each entry maps a vulnerability class
 # phrase to the ATT&CK techniques a defender should associate with it.
-_INFERENCE: List[tuple] = [
+_INFERENCE: list[tuple] = [
     (r"remote code execution|\brce\b|arbitrary code execution", ["T1190", "T1203"]),
     (r"command injection|os command|shell injection", ["T1190", "T1059"]),
     (r"sql injection|sqli\b", ["T1190"]),
@@ -153,7 +152,7 @@ _COMPILED = [(re.compile(p, re.IGNORECASE), tids) for p, tids in _INFERENCE]
 _TECH_RE = re.compile(r"\bT\d{4}(?:\.\d{3})?\b")
 
 
-def normalize_technique(value: str) -> Optional[str]:
+def normalize_technique(value: str) -> str | None:
     """Return a canonical ATT&CK technique id from a raw value, or None."""
     if not value:
         return None
@@ -172,7 +171,7 @@ def technique_name(technique_id: str) -> str:
     return TECHNIQUES.get(parent, {}).get("name", tid)
 
 
-def tactic_for_technique(technique_id: str) -> Optional[str]:
+def tactic_for_technique(technique_id: str) -> str | None:
     """Return the tactic id for a technique (parent fallback for sub-techniques)."""
     tid = normalize_technique(technique_id)
     if not tid:
@@ -183,7 +182,7 @@ def tactic_for_technique(technique_id: str) -> Optional[str]:
     return TECHNIQUES.get(parent, {}).get("tactic")
 
 
-def infer_techniques(text: str, *, max_techniques: int = 8) -> List[str]:
+def infer_techniques(text: str, *, max_techniques: int = 8) -> list[str]:
     """Infer candidate ATT&CK technique ids from free-text description.
 
     Deterministic keyword inference over the vulnerability-class map. Returns a
@@ -191,7 +190,7 @@ def infer_techniques(text: str, *, max_techniques: int = 8) -> List[str]:
     """
     if not text:
         return []
-    found: List[str] = []
+    found: list[str] = []
     for pattern, tids in _COMPILED:
         if pattern.search(text):
             for t in tids:

@@ -8,7 +8,7 @@ single place where wiring and safety defaults live.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .adapters import PlaybooksAdapter
 from .config import BastionConfig, load_config
@@ -38,7 +38,7 @@ __all__ = ["BastionApp"]
 
 
 class BastionApp:
-    def __init__(self, config: Optional[BastionConfig] = None):
+    def __init__(self, config: BastionConfig | None = None):
         self.config = config or load_config()
         setup_logging(self.config.log_level)
         self.log = get_logger("app")
@@ -64,7 +64,7 @@ class BastionApp:
             last_doctor_at=self.db.get_meta("last_doctor_at"),
         )
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         return {
             "product": "GreyNOC Bastion",
             "version": "0.1.0",
@@ -75,9 +75,9 @@ class BastionApp:
             "timestamp": utcnow_iso(),
         }
 
-    def doctor(self) -> Dict[str, Any]:
+    def doctor(self) -> dict[str, Any]:
         """Run self-checks and record the result for the Safety Status page."""
-        checks: List[Dict[str, Any]] = []
+        checks: list[dict[str, Any]] = []
 
         def check(name: str, ok: bool, detail: str = "") -> None:
             checks.append({"name": name, "ok": bool(ok), "detail": detail})
@@ -111,7 +111,7 @@ class BastionApp:
         try:
             results = self.detection.dmz.validate_all_rules()
             passing = sum(1 for r in results if r.passed)
-            check("detection_pack_validates", passing == len(results) and results,
+            check("detection_pack_validates", bool(results) and passing == len(results),
                   f"{passing}/{len(results)} rules pass")
         except Exception as exc:  # noqa: BLE001
             check("detection_pack_validates", False, str(exc))
@@ -130,10 +130,10 @@ class BastionApp:
         return {"ok": ok, "result": result, "checks": checks, "timestamp": utcnow_iso()}
 
     # --- playbooks -----------------------------------------------------------
-    def list_playbooks(self) -> List[BastionPlaybook]:
+    def list_playbooks(self) -> list[BastionPlaybook]:
         return self.playbooks.load_all()
 
-    def get_playbook(self, slug: str) -> Optional[BastionPlaybook]:
+    def get_playbook(self, slug: str) -> BastionPlaybook | None:
         return self.playbooks.get(slug)
 
     # --- report building -----------------------------------------------------
@@ -141,8 +141,8 @@ class BastionApp:
         self,
         *,
         title: str = "GreyNOC Bastion — Consolidated Report",
-        out_dir: Optional[Path] = None,
-        formats: Optional[List[ReportFormat]] = None,
+        out_dir: Path | None = None,
+        formats: list[ReportFormat] | None = None,
         include_bundle: bool = True,
     ) -> BastionReport:
         """Assemble all stored findings into a report and write it out."""
@@ -151,7 +151,7 @@ class BastionApp:
             ReportFormat.HTML, ReportFormat.MARKDOWN, ReportFormat.JSON,
             ReportFormat.CSV, ReportFormat.SARIF, ReportFormat.PDF,
         ]
-        findings: List[BastionFinding] = self.db.list_findings()
+        findings: list[BastionFinding] = self.db.list_findings()
         modules = sorted({f.category.value for f in findings})
         report = BastionReport(title=title, modules=modules, findings=findings)
         report.recompute_summary()
@@ -163,19 +163,19 @@ class BastionApp:
         return report
 
     # --- full-capacity engine surfaces --------------------------------------
-    def correlate(self) -> Dict[str, Any]:
+    def correlate(self) -> dict[str, Any]:
         """Build the cross-engine correlation view (clusters + coverage gaps)."""
         return self.correlation.build()
 
-    def detection_coverage(self) -> Dict[str, Any]:
+    def detection_coverage(self) -> dict[str, Any]:
         """ATT&CK coverage map + tactic gaps for the detection pack."""
         return self.detection.dmz.build_coverage()
 
-    def lint_detections(self) -> Dict[str, Any]:
+    def lint_detections(self) -> dict[str, Any]:
         """Static-lint every detection rule."""
         return self.detection.dmz.lint_all()
 
-    def identity_risk_paths(self, path: Path) -> List[Dict[str, Any]]:
+    def identity_risk_paths(self, path: Path) -> list[dict[str, Any]]:
         """Scan a repo and derive cross-identity blast-radius risk paths."""
         identities = self.identity.scan(path, persist=True)
         return self.identity.adapter.derive_risk_paths(identities)

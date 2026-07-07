@@ -11,7 +11,7 @@ audit trail. Bastion never probes public targets.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..adapters.homeguard_adapter import HomeGuardAdapter
 from ..adapters.port_manager_adapter import PortManagerAdapter, is_dev_server, label_service
@@ -20,20 +20,18 @@ from ..schemas import (
     BastionAsset,
     BastionEvidence,
     BastionFinding,
-    Confidence,
     EvidenceKind,
     Exposure,
     FindingCategory,
-    Severity,
     ValidationStatus,
 )
 from ..utils.logging import get_logger
 
 
 class AssetExposureService:
-    def __init__(self, db: Optional[Database] = None,
-                 port_manager: Optional[PortManagerAdapter] = None,
-                 homeguard: Optional[HomeGuardAdapter] = None):
+    def __init__(self, db: Database | None = None,
+                 port_manager: PortManagerAdapter | None = None,
+                 homeguard: HomeGuardAdapter | None = None):
         self.db = db
         self.port_manager = port_manager or PortManagerAdapter()
         self.homeguard = homeguard or HomeGuardAdapter()
@@ -46,7 +44,7 @@ class AssetExposureService:
         from ..schemas import stable_fingerprint
         return stable_fingerprint("svc", host, port, (service_name or "").lower())
 
-    def set_baseline(self, assets: List[BastionAsset]) -> int:
+    def set_baseline(self, assets: list[BastionAsset]) -> int:
         """Record the current assets as the known-good baseline."""
         sigs = sorted({self.service_signature(a.host, a.port, a.service_name) for a in assets})
         if self.db:
@@ -55,6 +53,32 @@ class AssetExposureService:
             self.db.audit("asset_baseline_set", actor="asset_exposure",
                           detail=f"{len(sigs)} services baselined")
         return len(sigs)
+
+    def _confirm_loopback(self, assets: list[BastionAsset]) -> None:
+        """Bounded, loopback-only liveness confirmation for observed services.
+
+        For each service already observed on ``127.0.0.1`` / ``::1``, attempt a
+        single short TCP connect to confirm it is actually accepting connections
+        on this machine. This is deliberately limited: loopback addresses only
+        (never LAN or public — that would be network scanning), only ports we
+        already saw in the socket table, and a sub-second timeout. It is a
+        defensive check of *your own* local services, opt-in and audit-logged.
+        """
+        import socket
+        _LOOPBACK = {"127.0.0.1", "::1", "localhost", "0.0.0.0", "::"}  # nosec B104 - set of loopback/any labels for comparison, not a bind
+        for a in assets:
+            host = a.host
+            # 0.0.0.0/:: means "all interfaces"; confirm via loopback.
+            connect_host = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host  # nosec B104 - resolving to loopback for a local liveness check
+            if connect_host not in {"127.0.0.1", "::1", "localhost"} or a.port is None:
+                a.metadata["active_confirmed"] = "skipped (not loopback)"
+                continue
+            try:
+                with socket.create_connection((connect_host, int(a.port)), timeout=0.3):
+                    a.metadata["active_confirmed"] = True
+            except OSError:
+                a.metadata["active_confirmed"] = False
+            a.observed_by = "active-local"
 
     def _load_baseline(self) -> set:
         if not self.db:
@@ -72,24 +96,25 @@ class AssetExposureService:
         self,
         *,
         passive: bool = True,
+        active: bool = False,
         active_checks_enabled: bool = False,
-        observations: Optional[List[Dict[str, Any]]] = None,
-        baseline_ports: Optional[List[int]] = None,
+        observations: list[dict[str, Any]] | None = None,
+        baseline_ports: list[int] | None = None,
         detect_drift: bool = True,
         persist: bool = True,
-    ) -> List[BastionAsset]:
+    ) -> list[BastionAsset]:
         """Review local assets.
 
-        ``passive=True`` reads the local socket table (no packets sent). Active
-        checks are only attempted when ``active_checks_enabled`` is True — that
-        flag comes from config and is audited by the caller. When a known-good
-        baseline exists, services absent from it are flagged as drift.
+        Default (``passive``) reads the local socket table — no packets are sent.
+        ``active=True`` additionally performs a bounded, loopback-only liveness
+        confirmation (a short connect to each observed ``127.0.0.1``/``::1``
+        listener). Active mode is opt-in, private/local only, and audit-logged;
+        the caller must have already checked ``config.active_checks``. When a
+        known-good baseline exists, services absent from it are flagged as drift.
         """
         baseline = set(baseline_ports or [])
         if observations is None:
-            # Reading the OS socket table is safe local introspection; it is the
-            # default "passive" behavior. Active connect-checks are not performed
-            # here and remain gated for a future bounded, logged implementation.
+            # Reading the OS socket table is safe local introspection.
             observations = self.port_manager.list_local_listeners(active=True)
 
         # Mark baseline membership.
@@ -97,6 +122,10 @@ class AssetExposureService:
             obs.setdefault("in_baseline", obs.get("port") in baseline)
 
         assets = self.homeguard.review_observations(observations)
+
+        # Active mode: bounded, loopback-only liveness confirmation.
+        if active:
+            self._confirm_loopback(assets)
 
         # Drift detection against a stored known-good baseline.
         known = self._load_baseline() if detect_drift else set()
@@ -133,13 +162,13 @@ class AssetExposureService:
             self.db.audit(
                 "asset_scan_local",
                 actor="asset_exposure",
-                detail=f"passive={passive} active_enabled={active_checks_enabled} "
+                detail=f"mode={'active-local' if active else 'passive'} "
                        f"observations={len(observations)} risky={sum(1 for a in assets if a.risky)}",
             )
         return assets
 
-    def to_findings(self, assets: List[BastionAsset]) -> List[BastionFinding]:
-        findings: List[BastionFinding] = []
+    def to_findings(self, assets: list[BastionAsset]) -> list[BastionFinding]:
+        findings: list[BastionFinding] = []
         for a in assets:
             # Non-risky, baseline, loopback assets are informational context, not
             # findings worth surfacing — keep the report signal high.

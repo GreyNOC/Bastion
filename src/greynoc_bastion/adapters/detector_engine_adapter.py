@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, cast
 
 from ..knowledge.ai_abuse import classify_ai_abuse
 from ..knowledge.attack import infer_techniques
@@ -64,7 +64,7 @@ class DetectorEngineAdapter(BaseAdapter):
     source_repo = "GreyNOC/Detector-Engine"
     name = "detector_engine"
 
-    def __init__(self, fixtures_dir: Optional[Path] = None) -> None:
+    def __init__(self, fixtures_dir: Path | None = None) -> None:
         super().__init__()
         self.fixtures_dir = Path(fixtures_dir) if fixtures_dir else (
             Path(__file__).resolve().parents[1] / "fixtures" / "threat_feeds"
@@ -75,9 +75,9 @@ class DetectorEngineAdapter(BaseAdapter):
     def _read_json(path: Path) -> Any:
         return json.loads(Path(path).read_text(encoding="utf-8"))
 
-    def parse_cve_feed(self, data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    def parse_cve_feed(self, data: dict[str, Any]) -> dict[str, dict[str, Any]]:
         """Parse an NVD 2.0-style CVE feed into a dict keyed by CVE id."""
-        out: Dict[str, Dict[str, Any]] = {}
+        out: dict[str, dict[str, Any]] = {}
         for item in data.get("vulnerabilities", []):
             cve = item.get("cve", {})
             cid = cve.get("id")
@@ -95,13 +95,13 @@ class DetectorEngineAdapter(BaseAdapter):
                 if arr:
                     cvss = _coerce_float(arr[0].get("cvssData", {}).get("baseScore"), None)
                     break
-            cwes: List[str] = []
+            cwes: list[str] = []
             for w in cve.get("weaknesses", []):
                 for d in w.get("description", []):
                     v = d.get("value", "")
                     if v.startswith("CWE-"):
                         cwes.append(v)
-            products: List[str] = []
+            products: list[str] = []
             for conf in cve.get("configurations", []):
                 for node in conf.get("nodes", []):
                     for m in node.get("cpeMatch", []):
@@ -114,14 +114,14 @@ class DetectorEngineAdapter(BaseAdapter):
                 "description": desc,
                 "cvss": cvss,
                 "cwes": cwes,
-                "products": sorted(set(p for p in products if p and p != "*")),
+                "products": sorted({p for p in products if p and p != "*"}),
                 "published": cve.get("published", ""),
             }
         return out
 
-    def parse_kev_feed(self, data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    def parse_kev_feed(self, data: dict[str, Any]) -> dict[str, dict[str, Any]]:
         """Parse a CISA KEV catalog into a dict keyed by CVE id."""
-        out: Dict[str, Dict[str, Any]] = {}
+        out: dict[str, dict[str, Any]] = {}
         for v in data.get("vulnerabilities", []):
             cid = (v.get("cveID") or "").upper()
             if not cid:
@@ -138,9 +138,9 @@ class DetectorEngineAdapter(BaseAdapter):
             }
         return out
 
-    def parse_epss_feed(self, data: Dict[str, Any]) -> Dict[str, float]:
+    def parse_epss_feed(self, data: dict[str, Any]) -> dict[str, float]:
         """Parse a FIRST.org EPSS envelope into ``{cve: probability}``."""
-        out: Dict[str, float] = {}
+        out: dict[str, float] = {}
         for row in data.get("data", []):
             cid = (row.get("cve") or "").upper()
             try:
@@ -152,11 +152,11 @@ class DetectorEngineAdapter(BaseAdapter):
     # --- scoring -------------------------------------------------------------
     def score_threat(
         self,
-        cve: Dict[str, Any],
+        cve: dict[str, Any],
         *,
-        kev: Optional[Dict[str, Any]] = None,
-        epss: Optional[float] = None,
-        sectors: Optional[List[str]] = None,
+        kev: dict[str, Any] | None = None,
+        epss: float | None = None,
+        sectors: list[str] | None = None,
     ) -> ThreatScore:
         """Compute an explainable multi-signal score for one CVE."""
         text = f"{cve.get('description', '')} {' '.join(cve.get('products', []))}".lower()
@@ -214,7 +214,7 @@ class DetectorEngineAdapter(BaseAdapter):
         )
 
     @staticmethod
-    def _severity_from_score(score: ThreatScore, cvss: Optional[float]) -> Severity:
+    def _severity_from_score(score: ThreatScore, cvss: float | None) -> Severity:
         u = score.urgency
         if score.kev_listed and u >= 0.6:
             return Severity.CRITICAL
@@ -236,7 +236,7 @@ class DetectorEngineAdapter(BaseAdapter):
         remediation priority compresses the predicted horizon and raises the
         exploitation probability.
         """
-        drivers: List[str] = []
+        drivers: list[str] = []
         if kev:
             return ThreatForecast(
                 exploit_probability=0.97,
@@ -291,15 +291,15 @@ class DetectorEngineAdapter(BaseAdapter):
 
     def build_threats(
         self,
-        cves: Dict[str, Dict[str, Any]],
-        kev: Optional[Dict[str, Dict[str, Any]]] = None,
-        epss: Optional[Dict[str, float]] = None,
-        sectors: Optional[List[str]] = None,
-    ) -> List[BastionThreat]:
+        cves: dict[str, dict[str, Any]],
+        kev: dict[str, dict[str, Any]] | None = None,
+        epss: dict[str, float] | None = None,
+        sectors: list[str] | None = None,
+    ) -> list[BastionThreat]:
         """Correlate feeds and produce ranked BastionThreat records."""
         kev = kev or {}
         epss = epss or {}
-        threats: List[BastionThreat] = []
+        threats: list[BastionThreat] = []
         for cid, cve in cves.items():
             kev_rec = kev.get(cid)
             epss_val = epss.get(cid)
@@ -310,7 +310,7 @@ class DetectorEngineAdapter(BaseAdapter):
             if score.ransomware_relevance >= 1.0:
                 category = ThreatCategory.RANSOMWARE
 
-            drivers: List[str] = []
+            drivers: list[str] = []
             if kev_rec:
                 drivers.append("Listed on CISA KEV (known exploited)")
             if epss_val is not None:
@@ -333,7 +333,8 @@ class DetectorEngineAdapter(BaseAdapter):
                 category = ThreatCategory.AI_ABUSE
                 drivers.append("AI/LLM abuse category: " + ", ".join(a["label"] for a in ai_abuse))
             if pqc:
-                drivers.append("Post-quantum exposure: " + ", ".join(pqc["vulnerable_primitives"]))
+                drivers.append("Post-quantum exposure: "
+                               + ", ".join(cast("list[str]", pqc.get("vulnerable_primitives", []) or [])))
             if forecast.window == "already_exploited":
                 drivers.insert(0, "Forecast: exploitation already observed (KEV)")
             elif forecast.horizon_days_p50 is not None:
@@ -384,7 +385,7 @@ class DetectorEngineAdapter(BaseAdapter):
         return threats
 
     # --- high-level entry points --------------------------------------------
-    def forecast_from_fixtures(self, sectors: Optional[List[str]] = None) -> List[BastionThreat]:
+    def forecast_from_fixtures(self, sectors: list[str] | None = None) -> list[BastionThreat]:
         """Build a ranked forecast from the bundled offline fixtures."""
         cves = self.parse_cve_feed(self._read_json(self.fixtures_dir / "cve_sample.json"))
         kev = self.parse_kev_feed(self._read_json(self.fixtures_dir / "kev_sample.json"))
@@ -397,14 +398,14 @@ class DetectorEngineAdapter(BaseAdapter):
                              "cvss": None, "cwes": [], "products": []}
         return self.build_threats(cves, kev, epss, sectors)
 
-    def forecast_from_path(self, path: Path, sectors: Optional[List[str]] = None) -> List[BastionThreat]:
+    def forecast_from_path(self, path: Path, sectors: list[str] | None = None) -> list[BastionThreat]:
         """Build a forecast from a single CVE-feed JSON file (offline)."""
         path = Path(path)
         data = self._read_json(path)
         cves = self.parse_cve_feed(data)
         # Opportunistically pick up sibling KEV/EPSS fixtures if present.
-        kev: Dict[str, Dict[str, Any]] = {}
-        epss: Dict[str, float] = {}
+        kev: dict[str, dict[str, Any]] = {}
+        epss: dict[str, float] = {}
         sib_kev = path.with_name("kev_sample.json")
         sib_epss = path.with_name("epss_sample.json")
         if sib_kev.is_file():

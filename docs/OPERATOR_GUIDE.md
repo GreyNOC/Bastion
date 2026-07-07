@@ -122,6 +122,55 @@ You get every format plus an integrity-checked evidence bundle (`.evidence.zip`)
 containing a manifest with per-entry SHA-256 hashes, the full report, and one file
 per finding. No full secrets appear in any output.
 
+## Verifying an evidence bundle
+
+Evidence bundles carry per-entry SHA-256 integrity. Re-check one at any time:
+
+```bash
+bastion evidence verify ./out/<report-id>.evidence.zip
+# → Evidence bundle: OK / Report ID / Entries verified / Problems: 0
+```
+
+Returns a non-zero exit code (and lists the problems) if the bundle was
+tampered with or is malformed. Add `--json` for machine-readable output.
+
+## Active vs passive asset review
+
+The default is passive — Bastion reads your machine's own socket table and sends
+no packets:
+
+```bash
+bastion assets scan-local            # passive (default)
+bastion assets scan-local --passive  # passive, explicit
+bastion assets scan-local --active   # bounded, loopback-only liveness confirmation
+```
+
+`--active` only runs when `BASTION_ACTIVE_CHECKS=true` is set; otherwise it
+refuses with a clear message and does nothing. Active mode is limited to a short
+connect to your **own** loopback services — it never probes the LAN or the
+internet.
+
+## Exposing the dashboard beyond localhost (advanced)
+
+By default the dashboard binds to `127.0.0.1` and refuses any non-loopback bind.
+If you must reach it from another machine, do it deliberately:
+
+```bash
+export BASTION_ALLOW_REMOTE_DASHBOARD=1
+export BASTION_DASHBOARD_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"
+bastion serve --host 0.0.0.0 --port 8788
+```
+
+Then every request needs the token:
+
+```bash
+curl -H "Authorization: Bearer $BASTION_DASHBOARD_TOKEN" http://<host>:8788/
+```
+
+Without both the override and the token, `serve` exits with an error rather than
+exposing an unauthenticated dashboard. Prefer an SSH tunnel to a loopback bind
+over remote exposure where possible.
+
 ## Turning on optional capabilities
 
 All optional capabilities are configured via environment variables or a `.env` file

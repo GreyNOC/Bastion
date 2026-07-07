@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from greynoc_bastion.adapters.detector_engine_adapter import DetectorEngineAdapter
 from greynoc_bastion.adapters.dmz_adapter import DmzAdapter

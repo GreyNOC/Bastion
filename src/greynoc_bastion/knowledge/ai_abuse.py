@@ -8,10 +8,10 @@ threats. Detection/prioritization aid only — no attack content.
 from __future__ import annotations
 
 import re
-from typing import Dict, List
+from typing import cast
 
 # category id -> (label, owasp_ref, keyword patterns)
-AI_ABUSE_CATEGORIES: Dict[str, Dict[str, object]] = {
+AI_ABUSE_CATEGORIES: dict[str, dict[str, object]] = {
     "prompt_injection": {
         "label": "Prompt injection",
         "owasp": "LLM01",
@@ -80,16 +80,16 @@ AI_ABUSE_CATEGORIES: Dict[str, Dict[str, object]] = {
 }
 
 _COMPILED = {
-    cid: [re.compile(p, re.IGNORECASE) for p in cat["patterns"]]  # type: ignore[index]
+    cid: [re.compile(p, re.IGNORECASE) for p in cast("list[str]", cat["patterns"])]
     for cid, cat in AI_ABUSE_CATEGORIES.items()
 }
 
 
-def classify_ai_abuse(text: str, *, max_categories: int = 6) -> List[Dict[str, str]]:
+def classify_ai_abuse(text: str, *, max_categories: int = 6) -> list[dict[str, str]]:
     """Return matched AI-abuse categories for ``text`` (empty if none/not AI)."""
     if not text:
         return []
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for cid, patterns in _COMPILED.items():
         if any(p.search(text) for p in patterns):
             cat = AI_ABUSE_CATEGORIES[cid]

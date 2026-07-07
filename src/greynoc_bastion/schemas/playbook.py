@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, List
+from typing import Any
 
 from .base import BastionModel, utcnow_iso
 from .enums import Severity
@@ -35,16 +35,16 @@ class BastionPlaybook(BastionModel):
     summary: str = ""
     severity: Severity = Severity.MEDIUM
 
-    attack_techniques: List[str] = dataclasses.field(default_factory=list)
-    data_sources: List[str] = dataclasses.field(default_factory=list)
-    related_detections: List[str] = dataclasses.field(default_factory=list)
-    related_playbooks: List[str] = dataclasses.field(default_factory=list)
+    attack_techniques: list[str] = dataclasses.field(default_factory=list)
+    data_sources: list[str] = dataclasses.field(default_factory=list)
+    related_detections: list[str] = dataclasses.field(default_factory=list)
+    related_playbooks: list[str] = dataclasses.field(default_factory=list)
 
     detection_guidance: str = ""
-    response_steps: List[PlaybookStep] = dataclasses.field(default_factory=list)
-    references: List[str] = dataclasses.field(default_factory=list)
+    response_steps: list[PlaybookStep] = dataclasses.field(default_factory=list)
+    references: list[str] = dataclasses.field(default_factory=list)
 
     source_path: str = ""
     body_markdown: str = ""                 # full doctrine text for the reader
     updated_at: str = dataclasses.field(default_factory=utcnow_iso)
-    metadata: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    metadata: dict[str, Any] = dataclasses.field(default_factory=dict)

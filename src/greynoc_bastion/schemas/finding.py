@@ -8,7 +8,7 @@ the dashboard, and the evidence center can treat them uniformly.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BastionModel, new_correlation_id, utcnow_iso
 from .enums import (
@@ -35,7 +35,7 @@ class BastionFinding(BastionModel):
     confidence: Confidence = Confidence.MEDIUM
     category: FindingCategory = FindingCategory.SYSTEM
 
-    evidence: List[BastionEvidence] = dataclasses.field(default_factory=list)
+    evidence: list[BastionEvidence] = dataclasses.field(default_factory=list)
     source: str = ""                       # producing module/adapter/feed
     affected: str = ""                     # asset id, repo path, host:port, rule id
 
@@ -46,16 +46,16 @@ class BastionFinding(BastionModel):
     operator_notes: str = ""
 
     # Optional cross-links to the richer typed record behind this finding.
-    ref_type: Optional[str] = None         # "threat" | "identity" | "detection" | "asset"
-    ref_id: Optional[str] = None
+    ref_type: str | None = None         # "threat" | "identity" | "detection" | "asset"
+    ref_id: str | None = None
 
-    tags: List[str] = dataclasses.field(default_factory=list)
-    metadata: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    tags: list[str] = dataclasses.field(default_factory=list)
+    metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     timestamp: str = dataclasses.field(default_factory=utcnow_iso)
     correlation_id: str = dataclasses.field(default_factory=lambda: new_correlation_id("fnd"))
 
-    def add_evidence(self, ev: BastionEvidence) -> "BastionFinding":
+    def add_evidence(self, ev: BastionEvidence) -> BastionFinding:
         self.evidence.append(ev)
         return self
 

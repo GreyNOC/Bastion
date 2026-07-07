@@ -11,7 +11,7 @@ before use, and treated strictly as data.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..adapters.greyiq_adapter import GreyIQAdapter
 from ..config import BastionConfig
@@ -21,7 +21,7 @@ from ..utils.logging import get_logger
 
 
 class AIAssistantService:
-    def __init__(self, config: BastionConfig, db: Optional[Database] = None):
+    def __init__(self, config: BastionConfig, db: Database | None = None):
         self.config = config
         self.db = db
         self.log = get_logger("ai_assistant")
@@ -36,7 +36,7 @@ class AIAssistantService:
     def enabled(self) -> bool:
         return self.config.ai_assistant
 
-    def _require_enabled(self) -> Optional[Dict[str, Any]]:
+    def _require_enabled(self) -> dict[str, Any] | None:
         if not self.enabled:
             return {
                 "enabled": False,
@@ -48,30 +48,30 @@ class AIAssistantService:
             }
         return None
 
-    def explain_finding(self, finding: BastionFinding) -> Dict[str, Any]:
+    def explain_finding(self, finding: BastionFinding) -> dict[str, Any]:
         blocked = self._require_enabled()
         if blocked:
             return blocked
         return {"enabled": True, "text": self.adapter.explain_finding(finding)}
 
-    def summarize_report(self, report: BastionReport) -> Dict[str, Any]:
+    def summarize_report(self, report: BastionReport) -> dict[str, Any]:
         blocked = self._require_enabled()
         if blocked:
             return blocked
         return {"enabled": True, "text": self.adapter.summarize_report(report)}
 
-    def draft_ticket(self, finding: BastionFinding) -> Dict[str, Any]:
+    def draft_ticket(self, finding: BastionFinding) -> dict[str, Any]:
         blocked = self._require_enabled()
         if blocked:
             return blocked
         return {"enabled": True, "ticket": self.adapter.draft_ticket(finding)}
 
-    def screen_untrusted(self, text: str) -> Dict[str, Any]:
+    def screen_untrusted(self, text: str) -> dict[str, Any]:
         """Always available: screen text for prompt-injection (a safety tool)."""
         assessment = self.adapter.assess_text(text)
         return {"assessment": assessment.to_dict(), "wrapped": self.adapter.wrap_untrusted(text)}
 
-    def request_command_execution(self, command: str, workspace: str = "") -> Dict[str, Any]:
+    def request_command_execution(self, command: str, workspace: str = "") -> dict[str, Any]:
         """Gated + logged + refused in the MVP."""
         result = self.adapter.request_command_execution(command, workspace)
         if self.db:

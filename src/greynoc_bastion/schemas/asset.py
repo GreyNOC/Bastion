@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BastionModel, new_correlation_id, utcnow_iso
 from .enums import AssetKind, Confidence, Exposure, Severity
@@ -22,7 +22,7 @@ class BastionAsset(BastionModel):
     label: str = ""
 
     host: str = "127.0.0.1"
-    port: Optional[int] = None
+    port: int | None = None
     protocol: str = ""                      # tcp/udp
     process: str = ""                       # owning process if known (passive)
     service_name: str = ""                  # http, ssh, rdp, smb, ...
@@ -31,7 +31,7 @@ class BastionAsset(BastionModel):
     severity: Severity = Severity.INFO
     confidence: Confidence = Confidence.MEDIUM
     risky: bool = False
-    risk_reasons: List[str] = dataclasses.field(default_factory=list)
+    risk_reasons: list[str] = dataclasses.field(default_factory=list)
 
     plain_explanation: str = ""             # plain-English "what this is"
     recommended_action: str = ""            # safe, local-only remediation guidance
@@ -42,4 +42,4 @@ class BastionAsset(BastionModel):
     first_seen: str = dataclasses.field(default_factory=utcnow_iso)
     last_seen: str = dataclasses.field(default_factory=utcnow_iso)
     correlation_id: str = dataclasses.field(default_factory=lambda: new_correlation_id("fnd"))
-    metadata: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    metadata: dict[str, Any] = dataclasses.field(default_factory=dict)

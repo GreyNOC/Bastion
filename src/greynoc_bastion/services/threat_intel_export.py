@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
 from ..knowledge.attack import tactic_for_technique, technique_name
 from ..schemas import BastionThreat, utcnow_iso
@@ -23,10 +23,10 @@ def _sid(kind: str, key: str) -> str:
     return f"{kind}--{uuid.uuid5(_NS, kind + ':' + key)}"
 
 
-def to_stix_bundle(threats: List[BastionThreat]) -> str:
+def to_stix_bundle(threats: list[BastionThreat]) -> str:
     """Render threats as a STIX 2.1 bundle (vulnerability + attack-pattern SDOs)."""
     now = utcnow_iso().replace("Z", ".000Z")
-    objects: List[Dict[str, Any]] = []
+    objects: list[dict[str, Any]] = []
     seen_patterns: set = set()
 
     for t in threats:
@@ -90,11 +90,11 @@ def to_stix_bundle(threats: List[BastionThreat]) -> str:
     return json.dumps(bundle, indent=2, ensure_ascii=False)
 
 
-def to_attack_navigator_layer(threats: List[BastionThreat],
+def to_attack_navigator_layer(threats: list[BastionThreat],
                               name: str = "GreyNOC Bastion — Threat Forecast") -> str:
     """Render an ATT&CK Navigator layer colored by max urgency per technique."""
-    scores: Dict[str, float] = {}
-    comments: Dict[str, List[str]] = {}
+    scores: dict[str, float] = {}
+    comments: dict[str, list[str]] = {}
     for t in threats:
         urg = t.score.urgency
         for tech in t.attack_techniques:

@@ -9,10 +9,9 @@ attack content.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional
 
 # Quantum-vulnerable primitives (broken by Shor/Grover at scale).
-QUANTUM_VULNERABLE: Dict[str, str] = {
+QUANTUM_VULNERABLE: dict[str, str] = {
     "rsa": "RSA (Shor-vulnerable)",
     "ecc": "Elliptic Curve (Shor-vulnerable)",
     "ecdsa": "ECDSA (Shor-vulnerable)",
@@ -24,7 +23,7 @@ QUANTUM_VULNERABLE: Dict[str, str] = {
 }
 
 # Quantum-safe / PQC primitives (NIST selections + hybrids).
-QUANTUM_SAFE: Dict[str, str] = {
+QUANTUM_SAFE: dict[str, str] = {
     "ml-kem": "ML-KEM (FIPS 203, Kyber)",
     "kyber": "ML-KEM (FIPS 203, Kyber)",
     "ml-dsa": "ML-DSA (FIPS 204, Dilithium)",
@@ -54,7 +53,7 @@ _LONGLIVED_RE = re.compile(
 )
 
 
-def classify_crypto(text: str) -> Dict[str, List[str]]:
+def classify_crypto(text: str) -> dict[str, list[str]]:
     """Return {'vulnerable': [...], 'safe': [...]} primitives found in text."""
     if not text:
         return {"vulnerable": [], "safe": []}
@@ -66,7 +65,7 @@ def classify_crypto(text: str) -> Dict[str, List[str]]:
     return {"vulnerable": vuln, "safe": safe}
 
 
-def hndl_exposure(text: str) -> Optional[Dict[str, object]]:
+def hndl_exposure(text: str) -> dict[str, object] | None:
     """Assess harvest-now-decrypt-later exposure.
 
     HNDL matters when quantum-vulnerable crypto protects data with a long
@@ -96,7 +95,7 @@ def hndl_exposure(text: str) -> Optional[Dict[str, object]]:
 
 
 def mosca_margin(shelf_life_years: float, migration_years: float,
-                 time_to_quantum_years: float) -> Dict[str, object]:
+                 time_to_quantum_years: float) -> dict[str, object]:
     """Mosca inequality: risk when (shelf_life + migration_time) > time_to_quantum.
 
     Returns the margin (negative = at risk) and a plain verdict. The margin is

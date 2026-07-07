@@ -6,10 +6,8 @@ findings carry recognized framework references. Pure data + lookup functions.
 
 from __future__ import annotations
 
-from typing import Dict, List
-
 # OWASP Non-Human Identities Top 10 (2025).
-OWASP_NHI_TOP_10: Dict[str, str] = {
+OWASP_NHI_TOP_10: dict[str, str] = {
     "NHI1": "Improper Offboarding",
     "NHI2": "Secret Leakage",
     "NHI3": "Vulnerable Third-Party NHI",
@@ -24,12 +22,12 @@ OWASP_NHI_TOP_10: Dict[str, str] = {
 
 
 def owasp_nhi_for(identity_type: str, *, privileged: bool = False,
-                  in_source: bool = True) -> List[Dict[str, str]]:
+                  in_source: bool = True) -> list[dict[str, str]]:
     """Map an identity to relevant OWASP NHI Top 10 categories.
 
     ``identity_type`` is a ``schemas.IdentityType`` value string.
     """
-    refs: List[str] = []
+    refs: list[str] = []
     # A secret found in source/config is, by definition, secret leakage.
     if in_source:
         refs.append("NHI2")
@@ -54,7 +52,7 @@ def owasp_nhi_for(identity_type: str, *, privileged: bool = False,
     refs.extend(by_type.get(identity_type, []))
 
     seen: set = set()
-    out: List[Dict[str, str]] = []
+    out: list[dict[str, str]] = []
     for r in refs:
         if r in seen or r not in OWASP_NHI_TOP_10:
             continue

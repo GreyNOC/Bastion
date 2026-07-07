@@ -39,6 +39,11 @@ where each rule is enforced.
 | Guarantee | Enforced in | Covered by test |
 | --- | --- | --- |
 | API/dashboard bind to `127.0.0.1` by default | `config.py`, `web/server.py` | `test_cli_and_app.py` |
+| Non-loopback dashboard bind refused unless override + token set | `web/server.py` `ensure_bind_allowed` | `test_dashboard_security.py` |
+| Dashboard token auth (Bearer) when `BASTION_DASHBOARD_TOKEN` set | `web/server.py` | `test_dashboard_security.py` |
+| CSRF token required on dashboard POST actions | `web/server.py` | `test_dashboard_security.py` |
+| Active checks require `BASTION_ACTIVE_CHECKS=true` + `--active`; loopback-only | `cli.py`, `services/asset_exposure.py` | `test_dashboard_security.py` |
+| Evidence bundles integrity-checked (per-entry SHA-256) | `services/evidence_center.py` | `test_reports.py` |
 | Live fetching OFF by default | `config.py` | `test_safety.py` |
 | Fetch is HTTPS-only, allowlisted, size/timeout-capped | `safety/netguard.py` | `test_safety.py` |
 | Private/loopback/link-local/CGNAT/test-net hosts refused (SSRF) | `safety/netguard.py` | `test_safety.py` |

@@ -12,9 +12,9 @@ from .attack import (
     ATTACK_TACTICS,
     TECHNIQUES,
     infer_techniques,
+    normalize_technique,
     tactic_for_technique,
     technique_name,
-    normalize_technique,
 )
 
 __all__ = [

@@ -8,7 +8,6 @@ the universal ``BastionFinding`` envelope for reporting.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
 
 from ..adapters.detector_engine_adapter import DetectorEngineAdapter
 from ..db import Database
@@ -16,21 +15,19 @@ from ..schemas import (
     BastionEvidence,
     BastionFinding,
     BastionThreat,
-    Confidence,
     EvidenceKind,
     FindingCategory,
-    Severity,
 )
 from ..utils.logging import get_logger
 
 
 class ThreatForecastService:
-    def __init__(self, db: Optional[Database] = None, adapter: Optional[DetectorEngineAdapter] = None):
+    def __init__(self, db: Database | None = None, adapter: DetectorEngineAdapter | None = None):
         self.db = db
         self.adapter = adapter or DetectorEngineAdapter()
         self.log = get_logger("threat_forecast")
 
-    def demo(self, sectors: Optional[List[str]] = None, persist: bool = False) -> List[BastionThreat]:
+    def demo(self, sectors: list[str] | None = None, persist: bool = False) -> list[BastionThreat]:
         threats = self.adapter.forecast_from_fixtures(sectors=sectors)
         if persist and self.db:
             for t in threats:
@@ -38,8 +35,8 @@ class ThreatForecastService:
             self.db.save_findings(self.to_findings(threats))
         return threats
 
-    def ingest(self, fixture_path: Path, sectors: Optional[List[str]] = None,
-               persist: bool = True) -> List[BastionThreat]:
+    def ingest(self, fixture_path: Path, sectors: list[str] | None = None,
+               persist: bool = True) -> list[BastionThreat]:
         threats = self.adapter.forecast_from_path(Path(fixture_path), sectors=sectors)
         if persist and self.db:
             for t in threats:
@@ -47,8 +44,8 @@ class ThreatForecastService:
             self.db.save_findings(self.to_findings(threats))
         return threats
 
-    def to_findings(self, threats: List[BastionThreat]) -> List[BastionFinding]:
-        findings: List[BastionFinding] = []
+    def to_findings(self, threats: list[BastionThreat]) -> list[BastionFinding]:
+        findings: list[BastionFinding] = []
         for t in threats:
             drivers = t.metadata.get("drivers", [])
             evidence = [

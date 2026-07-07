@@ -8,7 +8,7 @@ validate, replay, or transmit the underlying credential.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BastionModel, new_correlation_id, utcnow_iso
 from .enums import Confidence, Exposure, IdentityType, Severity
@@ -34,7 +34,7 @@ class BastionIdentity(BastionModel):
     detector: str = ""                      # which pattern/detector matched
 
     location: str = ""                      # repo-relative path or config source
-    line: Optional[int] = None
+    line: int | None = None
     repo_path: str = ""
 
     severity: Severity = Severity.MEDIUM
@@ -42,11 +42,11 @@ class BastionIdentity(BastionModel):
     exposure: Exposure = Exposure.UNKNOWN
 
     # Blast-radius signals.
-    scopes: List[str] = dataclasses.field(default_factory=list)     # permissions/scopes
+    scopes: list[str] = dataclasses.field(default_factory=list)     # permissions/scopes
     privileged: bool = False
-    reachable_services: List[str] = dataclasses.field(default_factory=list)
-    permission_chain: List[str] = dataclasses.field(default_factory=list)  # A -> B -> C
-    owasp_refs: List[Dict[str, str]] = dataclasses.field(default_factory=list)  # OWASP NHI Top 10
+    reachable_services: list[str] = dataclasses.field(default_factory=list)
+    permission_chain: list[str] = dataclasses.field(default_factory=list)  # A -> B -> C
+    owasp_refs: list[dict[str, str]] = dataclasses.field(default_factory=list)  # OWASP NHI Top 10
     is_active_unknown: bool = True          # we never test liveness; always "unknown"
 
     recommended_action: str = ""
@@ -55,7 +55,7 @@ class BastionIdentity(BastionModel):
 
     discovered_at: str = dataclasses.field(default_factory=utcnow_iso)
     correlation_id: str = dataclasses.field(default_factory=lambda: new_correlation_id("fnd"))
-    metadata: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Hard invariant backstop: a stored preview must actually be masked.

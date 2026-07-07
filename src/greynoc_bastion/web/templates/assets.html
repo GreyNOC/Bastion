@@ -8,6 +8,7 @@
 
 <div class="actions">
   <form class="inline" method="post" action="{{ url_for('run_assets') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn">Review local services (passive)</button>
   </form>
   <span class="pill">Active checks: {{ 'enabled' if config.active_checks else 'disabled (default)' }}</span>

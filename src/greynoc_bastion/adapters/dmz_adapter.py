@@ -18,17 +18,17 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from ..knowledge.attack import ATTACK_TACTICS, normalize_technique, tactic_for_technique
 from ..schemas import (
     BastionDetection,
     BastionValidationResult,
     Severity,
     ValidationStatus,
 )
-from ..knowledge.attack import ATTACK_TACTICS, normalize_technique, tactic_for_technique
-from ..utils.redos import is_safe_regex, safe_compile
 from ..utils.logging import get_logger
+from ..utils.redos import is_safe_regex, safe_compile
 from .base import BaseAdapter
 
 _log = get_logger("adapter.dmz.match")
@@ -50,7 +50,23 @@ def _parse_ts(value: str) -> datetime:
     return dt
 
 
-def _get_field(event: Dict[str, Any], name: str) -> Any:
+def _incident_from_cluster(host: Any, cluster: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize a dwell-window cluster of alerts on one host into an incident."""
+    ts0 = _parse_ts(cluster[0].get("first_ts") or cluster[0].get("last_ts") or "")
+    ts1 = _parse_ts(cluster[-1].get("last_ts") or cluster[-1].get("first_ts") or "")
+    rule_ids = sorted({str(c["rule_id"]) for c in cluster if c.get("rule_id")})
+    return {
+        "host": host,
+        "rule_ids": rule_ids,
+        "alert_count": len(cluster),
+        "dwell_minutes": round((ts1 - ts0).total_seconds() / 60, 1),
+        "first_ts": cluster[0].get("first_ts"),
+        "last_ts": cluster[-1].get("last_ts"),
+        "multi_stage": len(rule_ids) > 1,
+    }
+
+
+def _get_field(event: dict[str, Any], name: str) -> Any:
     """Resolve a field from top-level then the nested ``fields`` map."""
     if name in event:
         return event[name]
@@ -60,7 +76,7 @@ def _get_field(event: Dict[str, Any], name: str) -> Any:
     return None
 
 
-def _match_condition(event: Dict[str, Any], field: str, matcher: Any) -> bool:
+def _match_condition(event: dict[str, Any], field: str, matcher: Any) -> bool:
     value = _get_field(event, field)
     if value is None:
         return False
@@ -81,7 +97,7 @@ def _match_condition(event: Dict[str, Any], field: str, matcher: Any) -> bool:
             return bool(pattern.search(str(value)))
         try:
             if op in ("gte", "gt", "lte", "lt"):
-                fv, tv = float(value), float(target)
+                fv, tv = float(value), float(target)  # type: ignore[arg-type]  # guarded by except
                 return {"gte": fv >= tv, "gt": fv > tv, "lte": fv <= tv, "lt": fv < tv}[op]
         except (TypeError, ValueError):
             return False
@@ -110,16 +126,16 @@ class DmzAdapter(BaseAdapter):
     source_repo = "GreyNOC/DMZ"
     name = "dmz"
 
-    def __init__(self, fixtures_dir: Optional[Path] = None) -> None:
+    def __init__(self, fixtures_dir: Path | None = None) -> None:
         super().__init__()
         self.fixtures_root = Path(fixtures_dir) if fixtures_dir else (
             Path(__file__).resolve().parents[1] / "fixtures"
         )
 
     # --- loading -------------------------------------------------------------
-    def load_rules(self, rules_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    def load_rules(self, rules_dir: Path | None = None) -> list[dict[str, Any]]:
         rules_dir = Path(rules_dir) if rules_dir else self.fixtures_root / "detections" / "rules"
-        rules: List[Dict[str, Any]] = []
+        rules: list[dict[str, Any]] = []
         for f in sorted(rules_dir.glob("*.json")):
             try:
                 rules.append(json.loads(f.read_text(encoding="utf-8")))
@@ -127,13 +143,13 @@ class DmzAdapter(BaseAdapter):
                 self.log.warning("skipping unreadable rule %s: %s", f.name, exc)
         return rules
 
-    def load_rule(self, rule_id: str, rules_dir: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    def load_rule(self, rule_id: str, rules_dir: Path | None = None) -> dict[str, Any] | None:
         for r in self.load_rules(rules_dir):
             if r.get("id") == rule_id:
                 return r
         return None
 
-    def rule_to_detection(self, rule: Dict[str, Any]) -> BastionDetection:
+    def rule_to_detection(self, rule: dict[str, Any]) -> BastionDetection:
         """Represent a rule as a BastionDetection (validated pack -> VALIDATED)."""
         return BastionDetection(
             detection_id=rule.get("id", ""),
@@ -150,11 +166,11 @@ class DmzAdapter(BaseAdapter):
             },
             logic_language="gnoc-match",
             status=ValidationStatus.DRAFT,
-            references=[rule.get("runbook")] if rule.get("runbook") else [],
+            references=[str(rule["runbook"])] if rule.get("runbook") else [],
         )
 
     # --- matching ------------------------------------------------------------
-    def event_matches_rule(self, event: Dict[str, Any], rule: Dict[str, Any]) -> bool:
+    def event_matches_rule(self, event: dict[str, Any], rule: dict[str, Any]) -> bool:
         et = rule.get("event_type")
         if et and str(_get_field(event, "event_type")).lower() != str(et).lower():
             return False
@@ -164,14 +180,14 @@ class DmzAdapter(BaseAdapter):
                 return False
         return True
 
-    def evaluate_rule(self, rule: Dict[str, Any], events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def evaluate_rule(self, rule: dict[str, Any], events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Return alerts produced by ``rule`` over ``events`` (threshold+window)."""
         threshold = int(rule.get("threshold", 1) or 1)
         window_minutes = int(rule.get("window_minutes", 5) or 5)
         window = window_minutes * 60
 
         # Group matched events by (host, user).
-        groups: Dict[Tuple[Any, Any], List[Tuple[datetime, Dict[str, Any]]]] = {}
+        groups: dict[tuple[Any, Any], list[tuple[datetime, dict[str, Any]]]] = {}
         for ev in events:
             if not self.event_matches_rule(ev, rule):
                 continue
@@ -181,7 +197,7 @@ class DmzAdapter(BaseAdapter):
             key = (_get_field(ev, "host"), _get_field(ev, "user"))
             groups.setdefault(key, []).append((_parse_ts(ev.get("timestamp", "")), ev))
 
-        alerts: List[Dict[str, Any]] = []
+        alerts: list[dict[str, Any]] = []
         for (host, user), items in groups.items():
             items.sort(key=lambda x: x[0])
             # Sliding window over sorted timestamps.
@@ -209,7 +225,7 @@ class DmzAdapter(BaseAdapter):
         return alerts
 
     # --- validation flows ----------------------------------------------------
-    def run_rule_test(self, rule: Dict[str, Any], test: Dict[str, Any]) -> BastionValidationResult:
+    def run_rule_test(self, rule: dict[str, Any], test: dict[str, Any]) -> BastionValidationResult:
         """Validate a rule against its TP/TN test corpus."""
         tp_events = test.get("true_positive", []) or []
         tn_events = test.get("true_negative", []) or []
@@ -229,7 +245,7 @@ class DmzAdapter(BaseAdapter):
             true_positives=detected_tp,
             false_positives=false_pos,
             false_negatives=false_neg,
-            matched_events=[a for a in tp_alerts],
+            matched_events=list(tp_alerts),
             missed_events=[] if detected_tp else [{"note": "true-positive set did not fire"}],
             notes=(
                 f"TP set produced {len(tp_alerts)} alert(s); "
@@ -238,9 +254,9 @@ class DmzAdapter(BaseAdapter):
         )
         return result.compute_metrics()
 
-    def validate_all_rules(self) -> List[BastionValidationResult]:
+    def validate_all_rules(self) -> list[BastionValidationResult]:
         """Validate every bundled rule against its bundled test."""
-        results: List[BastionValidationResult] = []
+        results: list[BastionValidationResult] = []
         tests_dir = self.fixtures_root / "detections" / "tests"
         for rule in self.load_rules():
             rid = rule.get("id")
@@ -267,11 +283,11 @@ class DmzAdapter(BaseAdapter):
         telemetry = self._resolve_telemetry(scenario, scenario_path)
         rules = self.load_rules()
         fired: set[str] = set()
-        all_alerts: List[Dict[str, Any]] = []
+        all_alerts: list[dict[str, Any]] = []
         for rule in rules:
             alerts = self.evaluate_rule(rule, telemetry)
             if alerts:
-                fired.add(rule.get("id"))
+                fired.add(str(rule.get("id")))
                 all_alerts.extend(alerts)
 
         tp = len(expected & fired)
@@ -295,7 +311,7 @@ class DmzAdapter(BaseAdapter):
         )
         return result.compute_metrics()
 
-    def _resolve_telemetry(self, scenario: Dict[str, Any], scenario_path: Path) -> List[Dict[str, Any]]:
+    def _resolve_telemetry(self, scenario: dict[str, Any], scenario_path: Path) -> list[dict[str, Any]]:
         """Load the telemetry a scenario points at, tolerant of path layouts."""
         tf = scenario.get("telemetry_file") or scenario.get("telemetry")
         if not tf:
@@ -314,12 +330,12 @@ class DmzAdapter(BaseAdapter):
         raise FileNotFoundError(f"telemetry file not found for scenario: {tf}")
 
     # --- rule linting -------------------------------------------------------
-    def lint_rule(self, rule: Dict[str, Any]) -> List[Dict[str, str]]:
+    def lint_rule(self, rule: dict[str, Any]) -> list[dict[str, str]]:
         """Static-check one rule for structural and safety issues.
 
         Returns a list of ``{severity, code, message}`` issues (empty = clean).
         """
-        issues: List[Dict[str, str]] = []
+        issues: list[dict[str, str]] = []
 
         def add(sev: str, code: str, msg: str) -> None:
             issues.append({"severity": sev, "code": code, "message": msg})
@@ -358,9 +374,9 @@ class DmzAdapter(BaseAdapter):
                             f"field '{field}' regex refused: {reason}")
         return issues
 
-    def lint_all(self) -> Dict[str, Any]:
+    def lint_all(self) -> dict[str, Any]:
         """Lint every bundled rule; returns per-rule issues + a rollup."""
-        results: Dict[str, List[Dict[str, str]]] = {}
+        results: dict[str, list[dict[str, str]]] = {}
         errors = warnings = 0
         for rule in self.load_rules():
             issues = self.lint_rule(rule)
@@ -371,9 +387,9 @@ class DmzAdapter(BaseAdapter):
         return {"clean": not results, "errors": errors, "warnings": warnings, "by_rule": results}
 
     # --- ATT&CK coverage ----------------------------------------------------
-    def build_coverage(self) -> Dict[str, Any]:
+    def build_coverage(self) -> dict[str, Any]:
         """Map the rule pack's ATT&CK coverage and surface tactic-level gaps."""
-        covered_techniques: Dict[str, List[str]] = {}   # technique -> rule ids
+        covered_techniques: dict[str, list[str]] = {}   # technique -> rule ids
         covered_tactics: set = set()
         for rule in self.load_rules():
             rid = rule.get("id", "?")
@@ -407,40 +423,23 @@ class DmzAdapter(BaseAdapter):
         }
 
     # --- incident correlation -----------------------------------------------
-    def correlate_incidents(self, alerts: List[Dict[str, Any]],
-                            dwell_minutes: int = 60) -> List[Dict[str, Any]]:
+    def correlate_incidents(self, alerts: list[dict[str, Any]],
+                            dwell_minutes: int = 60) -> list[dict[str, Any]]:
         """Group alerts on the same host within a dwell window into incidents.
 
         Chains multi-stage activity (e.g. discovery -> lateral -> exfil on one
         host) into a single incident with a dwell time, so a defender sees the
         story instead of scattered alerts.
         """
-        by_host: Dict[Any, List[Dict[str, Any]]] = {}
+        by_host: dict[Any, list[dict[str, Any]]] = {}
         for a in alerts:
             by_host.setdefault(a.get("host"), []).append(a)
 
-        incidents: List[Dict[str, Any]] = []
+        incidents: list[dict[str, Any]] = []
+        window = dwell_minutes * 60
         for host, host_alerts in by_host.items():
             host_alerts.sort(key=lambda a: _parse_ts(a.get("first_ts") or a.get("last_ts") or ""))
-            cluster: List[Dict[str, Any]] = []
-            window = dwell_minutes * 60
-
-            def flush() -> None:
-                if not cluster:
-                    return
-                ts0 = _parse_ts(cluster[0].get("first_ts") or cluster[0].get("last_ts") or "")
-                ts1 = _parse_ts(cluster[-1].get("last_ts") or cluster[-1].get("first_ts") or "")
-                rule_ids = sorted({c.get("rule_id") for c in cluster if c.get("rule_id")})
-                incidents.append({
-                    "host": host,
-                    "rule_ids": rule_ids,
-                    "alert_count": len(cluster),
-                    "dwell_minutes": round((ts1 - ts0).total_seconds() / 60, 1),
-                    "first_ts": cluster[0].get("first_ts"),
-                    "last_ts": cluster[-1].get("last_ts"),
-                    "multi_stage": len(rule_ids) > 1,
-                })
-
+            cluster: list[dict[str, Any]] = []
             for a in host_alerts:
                 if not cluster:
                     cluster = [a]
@@ -450,9 +449,10 @@ class DmzAdapter(BaseAdapter):
                 if (cur - prev).total_seconds() <= window:
                     cluster.append(a)
                 else:
-                    flush()
+                    incidents.append(_incident_from_cluster(host, cluster))
                     cluster = [a]
-            flush()
+            if cluster:
+                incidents.append(_incident_from_cluster(host, cluster))
         # Multi-stage incidents first, then by alert count.
         incidents.sort(key=lambda i: (i["multi_stage"], i["alert_count"]), reverse=True)
         return incidents

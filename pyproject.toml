@@ -24,8 +24,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Dev tooling only — none of these are runtime dependencies. The product runs
+# on Flask (+ the standard library) alone.
 dev = [
     "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.8",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
 ]
 
 [project.scripts]
@@ -39,8 +45,47 @@ greynoc_bastion = [
     "web/templates/*.html",
     "web/static/*",
     "fixtures/**/*",
+    "db/*.sql",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# A pragmatic, non-noisy set: pyflakes, pycodestyle, imports, bugbear,
+# comprehensions, and pyupgrade.
+select = ["E", "F", "W", "I", "B", "C4", "UP"]
+ignore = [
+    "E501",   # line length is enforced by the formatter, not the linter
+    "B008",   # function call in argument default (we use dataclass fields, not this)
+    "UP038",  # isinstance tuple form is clearer here
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]  # tests insert src on sys.path before importing
+
+[tool.mypy]
+python_version = "3.10"
+# Lenient by design: this is a young codebase with dataclass-heavy models.
+# We check for real type errors, not missing annotations.
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+check_untyped_defs = false
+disallow_untyped_defs = false
+exclude = ["tests/", "build/"]
+
+[tool.bandit]
+# Skip the test tree; assert-in-tests (B101) is expected there.
+exclude_dirs = ["tests", "build", "dist"]
+# B105 (hardcoded password string) is a false positive here: the only matches
+# are identity-TYPE enum values (e.g. "ci_cd_token") and a policy string —
+# Bastion never hardcodes credentials (discovered secrets are masked, not stored).
+# Other findings are annotated with targeted `# nosec` comments.
+skips = ["B105"]

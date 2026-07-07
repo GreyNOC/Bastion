@@ -8,7 +8,7 @@ Generated detections stay ``DRAFT`` until a validation run promotes them.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BastionModel, new_correlation_id, utcnow_iso
 from .enums import Severity, ValidationStatus
@@ -28,9 +28,9 @@ class BastionDetection(BastionModel):
     description: str = ""
     severity: Severity = Severity.MEDIUM
 
-    attack_techniques: List[str] = dataclasses.field(default_factory=list)
-    data_sources: List[str] = dataclasses.field(default_factory=list)
-    logic: Dict[str, Any] = dataclasses.field(default_factory=dict)  # engine-specific
+    attack_techniques: list[str] = dataclasses.field(default_factory=list)
+    data_sources: list[str] = dataclasses.field(default_factory=list)
+    logic: dict[str, Any] = dataclasses.field(default_factory=dict)  # engine-specific
     logic_language: str = "gnoc-match"      # dialect label for the logic body
 
     expected_true_positives: int = 0
@@ -39,11 +39,11 @@ class BastionDetection(BastionModel):
     status: ValidationStatus = ValidationStatus.DRAFT
     version: str = "0.1.0"
     author: str = ""
-    references: List[str] = dataclasses.field(default_factory=list)
+    references: list[str] = dataclasses.field(default_factory=list)
 
     created_at: str = dataclasses.field(default_factory=utcnow_iso)
     updated_at: str = dataclasses.field(default_factory=utcnow_iso)
-    metadata: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass
@@ -68,18 +68,18 @@ class BastionValidationResult(BastionModel):
     passed: bool = False
     notes: str = ""
 
-    precision: Optional[float] = None
-    recall: Optional[float] = None
+    precision: float | None = None
+    recall: float | None = None
 
-    evidence_bundle_ref: Optional[str] = None
-    matched_events: List[Dict[str, Any]] = dataclasses.field(default_factory=list)
-    missed_events: List[Dict[str, Any]] = dataclasses.field(default_factory=list)
+    evidence_bundle_ref: str | None = None
+    matched_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    missed_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
     ran_at: str = dataclasses.field(default_factory=utcnow_iso)
     correlation_id: str = dataclasses.field(default_factory=lambda: new_correlation_id("fnd"))
-    metadata: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    metadata: dict[str, Any] = dataclasses.field(default_factory=dict)
 
-    def compute_metrics(self) -> "BastionValidationResult":
+    def compute_metrics(self) -> BastionValidationResult:
         """Fill precision/recall/verdict from the raw counts."""
         tp, fp, fn = self.true_positives, self.false_positives, self.false_negatives
         self.precision = tp / (tp + fp) if (tp + fp) else None

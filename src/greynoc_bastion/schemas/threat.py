@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BastionModel, new_correlation_id, utcnow_iso
 from .enums import Confidence, Severity, ThreatCategory, ValidationStatus
@@ -27,7 +27,7 @@ class ThreatScore(BastionModel):
     remediation_priority: float = 0.0
     kev_listed: bool = False               # on CISA KEV -> hard urgency boost
 
-    def as_components(self) -> Dict[str, float]:
+    def as_components(self) -> dict[str, float]:
         return {
             "evidence_strength": self.evidence_strength,
             "exploit_likelihood": self.exploit_likelihood,
@@ -48,11 +48,11 @@ class ThreatForecast(BastionModel):
     """
 
     exploit_probability: float = 0.0
-    horizon_days_p50: Optional[int] = None
-    horizon_days_p90: Optional[int] = None
+    horizon_days_p50: int | None = None
+    horizon_days_p90: int | None = None
     confidence: float = 0.0
     window: str = "unknown"                 # already_exploited|imminent|near_term|medium_term|low
-    drivers: List[str] = dataclasses.field(default_factory=list)
+    drivers: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -65,35 +65,35 @@ class BastionThreat(BastionModel):
     summary: str = ""
 
     # Common intel identifiers (any subset may be present).
-    cve_ids: List[str] = dataclasses.field(default_factory=list)
-    cwe_ids: List[str] = dataclasses.field(default_factory=list)
-    attack_techniques: List[str] = dataclasses.field(default_factory=list)  # ATT&CK Txxxx
-    affected_products: List[str] = dataclasses.field(default_factory=list)
-    references: List[str] = dataclasses.field(default_factory=list)
+    cve_ids: list[str] = dataclasses.field(default_factory=list)
+    cwe_ids: list[str] = dataclasses.field(default_factory=list)
+    attack_techniques: list[str] = dataclasses.field(default_factory=list)  # ATT&CK Txxxx
+    affected_products: list[str] = dataclasses.field(default_factory=list)
+    references: list[str] = dataclasses.field(default_factory=list)
 
     severity: Severity = Severity.MEDIUM
     confidence: Confidence = Confidence.MEDIUM
     score: ThreatScore = dataclasses.field(default_factory=ThreatScore)
 
-    epss: Optional[float] = None           # raw EPSS probability if known
-    cvss: Optional[float] = None           # raw CVSS base score if known
+    epss: float | None = None           # raw EPSS probability if known
+    cvss: float | None = None           # raw CVSS base score if known
     kev: bool = False                      # listed on CISA KEV
     ransomware_used: bool = False          # known ransomware use
 
-    sectors: List[str] = dataclasses.field(default_factory=list)
+    sectors: list[str] = dataclasses.field(default_factory=list)
     remediation: str = ""
 
     # Predictive + enrichment layers (full-capacity forecast).
-    forecast: Optional[ThreatForecast] = None
-    ai_abuse: List[Dict[str, str]] = dataclasses.field(default_factory=list)  # AI-abuse categories
-    pqc_risk: Optional[Dict[str, Any]] = None                                 # HNDL / PQC assessment
-    iocs: List[Dict[str, str]] = dataclasses.field(default_factory=list)      # indicators of compromise
+    forecast: ThreatForecast | None = None
+    ai_abuse: list[dict[str, str]] = dataclasses.field(default_factory=list)  # AI-abuse categories
+    pqc_risk: dict[str, Any] | None = None                                 # HNDL / PQC assessment
+    iocs: list[dict[str, str]] = dataclasses.field(default_factory=list)      # indicators of compromise
 
     # A generated detection idea stays a DRAFT until validated in the Range.
-    draft_detection: Optional[str] = None
+    draft_detection: str | None = None
     detection_status: ValidationStatus = ValidationStatus.DRAFT
 
     source: str = ""
     first_seen: str = dataclasses.field(default_factory=utcnow_iso)
     last_updated: str = dataclasses.field(default_factory=utcnow_iso)
-    metadata: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    metadata: dict[str, Any] = dataclasses.field(default_factory=dict)

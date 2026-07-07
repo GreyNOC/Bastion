@@ -9,7 +9,6 @@ result promotes them.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
 
 from ..adapters.detections_adapter import DetectionsAdapter
 from ..adapters.dmz_adapter import DmzAdapter
@@ -28,9 +27,9 @@ from ..utils.logging import get_logger
 
 
 class DetectionValidationService:
-    def __init__(self, db: Optional[Database] = None,
-                 dmz: Optional[DmzAdapter] = None,
-                 detections: Optional[DetectionsAdapter] = None):
+    def __init__(self, db: Database | None = None,
+                 dmz: DmzAdapter | None = None,
+                 detections: DetectionsAdapter | None = None):
         self.db = db
         self.dmz = dmz or DmzAdapter()
         self.detections = detections or DetectionsAdapter()
@@ -43,7 +42,7 @@ class DetectionValidationService:
             self.db.save_finding(self._to_finding(result))
         return result
 
-    def validate_all(self, persist: bool = True) -> List[BastionValidationResult]:
+    def validate_all(self, persist: bool = True) -> list[BastionValidationResult]:
         results = self.dmz.validate_all_rules()
         if persist and self.db:
             # Persist validated detections + results.

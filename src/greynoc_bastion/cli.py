@@ -23,7 +23,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 from . import __version__
 from .app import BastionApp
@@ -213,16 +212,30 @@ def cmd_assets(args) -> int:
     if args.assets_cmd != "scan-local":
         print("error: unknown assets subcommand", file=sys.stderr)
         return 2
-    active_enabled = app.config.active_checks and not args.passive
-    assets = app.assets.scan_local(
-        passive=True,
-        active_checks_enabled=active_enabled,
-        persist=True,
-    )
+
+    want_active = getattr(args, "active", False)
+    if want_active:
+        # Active checks are private/local only, bounded, and logged — and opt-in.
+        # They run only when explicitly enabled in config AND requested here.
+        if not app.config.active_checks:
+            print(
+                "error: --active requires BASTION_ACTIVE_CHECKS=true. Active checks are "
+                "private/local only (a bounded loopback liveness confirmation of your own "
+                "services), opt-in, and logged. Nothing was run. Use the default passive "
+                "review, or set BASTION_ACTIVE_CHECKS=true to enable active mode.",
+                file=sys.stderr,
+            )
+            return 2
+        assets = app.assets.scan_local(active=True, persist=True)
+        mode = "active-local"
+    else:
+        assets = app.assets.scan_local(active=False, persist=True)
+        mode = "passive"
+
     if args.json:
         _print_json([a.to_dict() for a in assets])
         return 0
-    print(f"Assets & Exposure — {len(assets)} local services reviewed (passive)\n")
+    print(f"Assets & Exposure — {len(assets)} local services reviewed ({mode})\n")
     for a in assets:
         tag = "risky" if a.risky else "     "
         dev = " dev" if a.is_dev_server else ""
@@ -317,6 +330,30 @@ def cmd_forecast_export(args) -> int:
     return 0
 
 
+def cmd_evidence(args) -> int:
+    app = _app(args)
+    if args.evidence_cmd != "verify":
+        print("error: unknown evidence subcommand", file=sys.stderr)
+        return 2
+    path = Path(args.bundle)
+    if not path.exists():
+        print(f"error: bundle not found: {path}", file=sys.stderr)
+        return 2
+    result = app.evidence_center.verify_bundle(path)
+    if args.json:
+        _print_json(result)
+        return 0 if result.get("ok") else 1
+    status = "OK" if result.get("ok") else "FAILED"
+    print(f"Evidence bundle: {status}")
+    print(f"Report ID: {result.get('report_id') or '(unknown)'}")
+    print(f"Entries verified: {result.get('entry_count', 0)}")
+    problems = result.get("problems", []) or []
+    print(f"Problems: {len(problems)}")
+    for p in problems:
+        print(f"  - {p}")
+    return 0 if result.get("ok") else 1
+
+
 def cmd_serve(args) -> int:
     app = _app(args)
     from .web.server import serve
@@ -327,10 +364,10 @@ def cmd_serve(args) -> int:
 
 
 # --- helpers -----------------------------------------------------------------
-def _parse_formats(spec: Optional[str]) -> Optional[List[ReportFormat]]:
+def _parse_formats(spec: str | None) -> list[ReportFormat] | None:
     if not spec:
         return None
-    out: List[ReportFormat] = []
+    out: list[ReportFormat] = []
     for token in spec.split(","):
         token = token.strip().lower()
         if not token:
@@ -421,8 +458,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     ap = sub.add_parser("assets", help="local asset & exposure review")
     asub = ap.add_subparsers(dest="assets_cmd", required=True)
-    asl = asub.add_parser("scan-local", parents=[common], help="review local listening services (passive)")
-    asl.add_argument("--passive", action="store_true", help="passive only (default; never probes)")
+    asl = asub.add_parser("scan-local", parents=[common],
+                          help="review local listening services (passive by default)")
+    asmode = asl.add_mutually_exclusive_group()
+    asmode.add_argument("--passive", action="store_true",
+                        help="passive only (default) — reads the local socket table, sends no packets")
+    asmode.add_argument("--active", action="store_true",
+                        help="bounded loopback-only liveness confirmation; requires BASTION_ACTIVE_CHECKS=true")
     asl.set_defaults(func=cmd_assets)
 
     rp = sub.add_parser("report", help="build reports")
@@ -437,6 +479,12 @@ def build_parser() -> argparse.ArgumentParser:
                          help="cross-engine correlation view + coverage gaps")
     cor.set_defaults(func=cmd_correlate)
 
+    evp = sub.add_parser("evidence", help="evidence bundle tools")
+    evsub = evp.add_subparsers(dest="evidence_cmd", required=True)
+    evv = evsub.add_parser("verify", parents=[common], help="verify an evidence bundle's integrity")
+    evv.add_argument("bundle", help="path to a .evidence.zip bundle")
+    evv.set_defaults(func=cmd_evidence)
+
     svp = sub.add_parser("serve", help="serve the local dashboard (127.0.0.1)")
     svp.add_argument("--host", default=None, help="bind host (default 127.0.0.1)")
     svp.add_argument("--port", type=int, default=None, help="bind port (default 8788)")
@@ -445,7 +493,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     # Propagate the top-level --json to handlers (they read args.json).

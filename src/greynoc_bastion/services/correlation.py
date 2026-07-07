@@ -12,11 +12,11 @@ Deterministic and local — pure joins over already-stored records, no network.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..db import Database
 from ..knowledge.attack import tactic_for_technique, technique_name
-from ..schemas import ValidationStatus, new_correlation_id, stable_fingerprint, utcnow_iso
+from ..schemas import ValidationStatus, stable_fingerprint, utcnow_iso
 from ..utils.logging import get_logger
 
 
@@ -29,15 +29,15 @@ class CorrelationCluster:
     entity_value: str
     label: str
     severity: str = "info"
-    threats: List[str] = dataclasses.field(default_factory=list)
-    detections: List[str] = dataclasses.field(default_factory=list)
-    playbooks: List[str] = dataclasses.field(default_factory=list)
-    assets: List[str] = dataclasses.field(default_factory=list)
-    identities: List[str] = dataclasses.field(default_factory=list)
+    threats: list[str] = dataclasses.field(default_factory=list)
+    detections: list[str] = dataclasses.field(default_factory=list)
+    playbooks: list[str] = dataclasses.field(default_factory=list)
+    assets: list[str] = dataclasses.field(default_factory=list)
+    identities: list[str] = dataclasses.field(default_factory=list)
     narrative: str = ""
     coverage_gap: bool = False       # forecasted/relevant but no validated detection
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
     @property
@@ -52,7 +52,7 @@ class CorrelationService:
         self.db = db
         self.log = get_logger("correlation")
 
-    def build(self) -> Dict[str, Any]:
+    def build(self) -> dict[str, Any]:
         """Build correlation clusters from all stored records."""
         threats = self.db.list_threats(limit=1000)
         detections = self.db.list_detections(limit=1000)
@@ -63,7 +63,6 @@ class CorrelationService:
             from ..adapters.playbooks_adapter import PlaybooksAdapter
             playbooks = PlaybooksAdapter().load_all()
         assets = self.db.list_assets(limit=2000)
-        identities = self.db.list_identities(limit=2000)
 
         # Which detections are validated (covered)?
         validated_ids = {
@@ -72,9 +71,9 @@ class CorrelationService:
         }
 
         # --- technique index across engines ---
-        tech_threats: Dict[str, List] = {}
-        tech_detections: Dict[str, List] = {}
-        tech_playbooks: Dict[str, List] = {}
+        tech_threats: dict[str, list] = {}
+        tech_detections: dict[str, list] = {}
+        tech_playbooks: dict[str, list] = {}
         for t in threats:
             for tech in t.attack_techniques:
                 tech_threats.setdefault(tech, []).append(t)
@@ -85,7 +84,7 @@ class CorrelationService:
             for tech in p.attack_techniques:
                 tech_playbooks.setdefault(tech, []).append(p)
 
-        clusters: List[CorrelationCluster] = []
+        clusters: list[CorrelationCluster] = []
         all_techs = set(tech_threats) | set(tech_detections) | set(tech_playbooks)
         for tech in sorted(all_techs):
             t_threats = tech_threats.get(tech, [])
@@ -115,7 +114,7 @@ class CorrelationService:
             clusters.append(cluster)
 
         # --- host index (assets <-> detection surface) ---
-        host_assets: Dict[str, List] = {}
+        host_assets: dict[str, list] = {}
         for a in assets:
             if a.risky or a.exposure.value in ("lan", "public"):
                 host_assets.setdefault(a.host, []).append(a)
@@ -149,7 +148,7 @@ class CorrelationService:
         }
 
     def _technique_narrative(self, tech, threats, dets, pbs, has_validated) -> str:
-        parts: List[str] = []
+        parts: list[str] = []
         name = technique_name(tech)
         tac = tactic_for_technique(tech)
         if threats:
@@ -188,7 +187,7 @@ class CorrelationService:
 _SEV_ORDER = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
 
-def _max_sev(values: List[str]) -> str:
+def _max_sev(values: list[str]) -> str:
     best = "info"
     for v in values:
         if _SEV_ORDER.get(v, 0) > _SEV_ORDER.get(best, 0):

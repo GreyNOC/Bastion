@@ -19,7 +19,6 @@ from __future__ import annotations
 import dataclasses
 import ipaddress
 import socket
-from typing import List, Optional
 from urllib.parse import urlparse
 
 
@@ -48,7 +47,7 @@ class FetchDecision:
     max_bytes: int = 10 * 1024 * 1024
     timeout_seconds: int = 20
 
-    def raise_if_blocked(self) -> "FetchDecision":
+    def raise_if_blocked(self) -> FetchDecision:
         if not self.allowed:
             raise NetGuardError(self.reason)
         return self
@@ -69,7 +68,7 @@ _EXTRA_BLOCKED_NETS = [
 ]
 
 
-def _is_non_public_ip(ip: ipaddress._BaseAddress) -> bool:
+def _is_non_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """True for any address a defensive fetcher must never reach."""
     if (
         ip.is_private
@@ -118,7 +117,7 @@ def is_private_host(host: str, *, resolve: bool = False) -> bool:
         return True
     for info in infos:
         sockaddr = info[4]
-        addr = sockaddr[0]
+        addr = str(sockaddr[0])  # IPv6 scope-id (fe80::1%eth0) trimmed below
         try:
             ip = ipaddress.ip_address(addr.split("%")[0])
         except ValueError:
@@ -132,7 +131,7 @@ def evaluate_fetch_target(
     url: str,
     *,
     live_fetch_enabled: bool,
-    allowlist: List[str],
+    allowlist: list[str],
     max_bytes: int = 10 * 1024 * 1024,
     timeout_seconds: int = 20,
     resolve: bool = False,
@@ -187,7 +186,7 @@ def evaluate_fetch_target(
 def validate_redirect(
     location: str,
     *,
-    allowlist: List[str],
+    allowlist: list[str],
     resolve: bool = False,
 ) -> FetchDecision:
     """Re-run the guard against a redirect ``Location`` (live fetch assumed on)."""

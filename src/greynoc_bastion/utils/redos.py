@@ -9,7 +9,6 @@ NHI engine's ``_REDOS_SHAPES`` approach flagged during the source audit.
 from __future__ import annotations
 
 import re
-from typing import Optional, Tuple
 
 _MAX_PATTERN_LENGTH = 1000
 
@@ -66,7 +65,7 @@ def _has_dangerous_nesting(pattern: str) -> bool:
     return False
 
 
-def is_safe_regex(pattern: str) -> Tuple[bool, str]:
+def is_safe_regex(pattern: str) -> tuple[bool, str]:
     """Return ``(ok, reason)``. ``ok`` is False for over-long or risky shapes."""
     if pattern is None:
         return False, "pattern is None"
@@ -84,7 +83,7 @@ def is_safe_regex(pattern: str) -> Tuple[bool, str]:
     return True, "ok"
 
 
-def safe_compile(pattern: str, flags: int = 0) -> Optional["re.Pattern[str]"]:
+def safe_compile(pattern: str, flags: int = 0) -> re.Pattern[str] | None:
     """Compile ``pattern`` only if it passes the ReDoS screen, else return None."""
     ok, _reason = is_safe_regex(pattern)
     if not ok:

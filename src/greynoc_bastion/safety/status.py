@@ -9,7 +9,7 @@ One structured view of the live safety posture, consumed by:
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclasses.dataclass
@@ -18,7 +18,7 @@ class SafetyStatus:
 
     # Network posture
     live_fetch_enabled: bool = False
-    allowed_fetch_hosts: List[str] = dataclasses.field(default_factory=list)
+    allowed_fetch_hosts: list[str] = dataclasses.field(default_factory=list)
     private_host_blocking: bool = True          # always on; here for visibility
     https_only: bool = True                     # always on
     api_binding_host: str = "127.0.0.1"
@@ -40,13 +40,13 @@ class SafetyStatus:
     active_checks_scope: str = "private/loopback only, opt-in, bounded, logged"
 
     # Health
-    last_doctor_result: Optional[str] = None
-    last_doctor_at: Optional[str] = None
+    last_doctor_result: str | None = None
+    last_doctor_at: str | None = None
 
     # Derived, human-readable warnings for anything moved off a safe default.
-    warnings: List[str] = dataclasses.field(default_factory=list)
+    warnings: list[str] = dataclasses.field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
     @property
@@ -62,11 +62,11 @@ class SafetyStatus:
 def build_safety_status(
     config,
     *,
-    last_doctor_result: Optional[str] = None,
-    last_doctor_at: Optional[str] = None,
+    last_doctor_result: str | None = None,
+    last_doctor_at: str | None = None,
 ) -> SafetyStatus:
     """Derive a :class:`SafetyStatus` from a :class:`~greynoc_bastion.config.BastionConfig`."""
-    warnings: List[str] = []
+    warnings: list[str] = []
 
     if not config.loopback_only:
         warnings.append(

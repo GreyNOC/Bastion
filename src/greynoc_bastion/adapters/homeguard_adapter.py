@@ -12,14 +12,14 @@ SSH-into-router flows. HomeGuard here is read-only and explanatory.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..schemas import AssetKind, BastionAsset, Confidence, Exposure, Severity
 from .base import BaseAdapter
 
 # Risky-port knowledge base ported verbatim (data only) from HomeGuard's
 # DEFAULT_RISKY_PORTS. Every entry carries a plain-English "why".
-DEFAULT_RISKY_PORTS: List[Dict[str, Any]] = [
+DEFAULT_RISKY_PORTS: list[dict[str, Any]] = [
     {"port": 21, "service": "FTP", "severity": "medium", "why": "FTP is often unencrypted. Do not expose it unless you know why it is needed."},
     {"port": 22, "service": "SSH", "severity": "low", "why": "SSH is normal for some advanced devices, but it should use strong passwords or keys."},
     {"port": 23, "service": "Telnet", "severity": "high", "why": "Telnet sends logins in clear text and is risky on home networks."},
@@ -44,7 +44,7 @@ DEFAULT_RISKY_PORTS: List[Dict[str, Any]] = [
     {"port": 31337, "service": "Unusual legacy service port", "severity": "high", "why": "Port 31337 is historically unusual on home devices. A port-only observation cannot prove malicious use, but unexpected exposure should be reviewed."},
 ]
 
-_PORT_INDEX: Dict[int, Dict[str, Any]] = {p["port"]: p for p in DEFAULT_RISKY_PORTS}
+_PORT_INDEX: dict[int, dict[str, Any]] = {p["port"]: p for p in DEFAULT_RISKY_PORTS}
 
 # Idempotent hedging note appended to every asset finding — a port observation
 # is not proof of compromise. Ported from HomeGuard guidance.py intent.
@@ -62,7 +62,7 @@ class HomeGuardAdapter(BaseAdapter):
     source_repo = "GreyNOC/HomeGuard"
     name = "homeguard"
 
-    def lookup_port(self, port: int) -> Optional[Dict[str, Any]]:
+    def lookup_port(self, port: int) -> dict[str, Any] | None:
         return _PORT_INDEX.get(int(port)) if port is not None else None
 
     def classify_service(
@@ -80,7 +80,7 @@ class HomeGuardAdapter(BaseAdapter):
         kb = self.lookup_port(port)
         service_name = kb["service"] if kb else (process or "unknown service")
         risky = kb is not None
-        reasons: List[str] = []
+        reasons: list[str] = []
         base_sev = Severity.coerce(kb["severity"], Severity.INFO) if kb else Severity.INFO
 
         # Exposure escalates severity: a risky service on the LAN/public matters
@@ -152,12 +152,12 @@ class HomeGuardAdapter(BaseAdapter):
         parts.append("Bastion does not change any settings for you; apply changes yourself after review.")
         return " ".join(parts)
 
-    def review_observations(self, observations: List[Dict[str, Any]]) -> List[BastionAsset]:
+    def review_observations(self, observations: list[dict[str, Any]]) -> list[BastionAsset]:
         """Classify a list of passively-observed services into assets.
 
         Each observation: ``{host, port, protocol?, process?, exposure?, in_baseline?}``.
         """
-        assets: List[BastionAsset] = []
+        assets: list[BastionAsset] = []
         for obs in observations:
             try:
                 exposure = Exposure.coerce(obs.get("exposure"), Exposure.LOOPBACK)

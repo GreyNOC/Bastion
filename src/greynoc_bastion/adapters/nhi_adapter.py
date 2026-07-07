@@ -15,11 +15,11 @@ Hard safety rules enforced here:
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-
 import json
+import re
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any
 
 from ..knowledge.owasp import owasp_nhi_for
 from ..safety.masking import fingerprint_secret, iter_secret_matches, mask_secret
@@ -34,7 +34,7 @@ from .base import BaseAdapter
 
 # Env-var key -> (label, provider, identity_type). Ported from the NHI engine's
 # curated SECRET_KEYS knowledge base (defensive data only).
-SECRET_KEYS: Dict[str, Tuple[str, Optional[str], IdentityType]] = {
+SECRET_KEYS: dict[str, tuple[str, str | None, IdentityType]] = {
     "AWS_ACCESS_KEY_ID": ("Cloud IAM user", "aws", IdentityType.CLOUD_WORKLOAD),
     "AWS_SECRET_ACCESS_KEY": ("Cloud IAM user", "aws", IdentityType.CLOUD_WORKLOAD),
     "AZURE_CLIENT_SECRET": ("Service account", "azure", IdentityType.SERVICE_ACCOUNT),
@@ -74,7 +74,7 @@ AI_PROVIDER_KEYS = {
 }
 
 # Filenames that indicate a specific non-human identity surface.
-_FILENAME_SIGNALS: List[Tuple[str, str, IdentityType]] = [
+_FILENAME_SIGNALS: list[tuple[str, str, IdentityType]] = [
     (".mcp.json", "MCP server configuration", IdentityType.MCP_SERVER),
     ("mcp.json", "MCP server configuration", IdentityType.MCP_SERVER),
     ("mcp_config.json", "MCP server configuration", IdentityType.MCP_SERVER),
@@ -155,7 +155,7 @@ class NhiAdapter(BaseAdapter):
             if path.suffix.lower() in _SCANNABLE_SUFFIXES:
                 yield path
 
-    def _scan_env_line(self, key: str, value: str) -> Optional[Tuple[str, Optional[str], IdentityType, bool]]:
+    def _scan_env_line(self, key: str, value: str) -> tuple[str, str | None, IdentityType, bool] | None:
         key_up = key.strip().upper()
         # Exact match, then suffix heuristics.
         if key_up in SECRET_KEYS:
@@ -172,10 +172,10 @@ class NhiAdapter(BaseAdapter):
                 return label, provider, itype, False
         return None
 
-    def scan_repo(self, root: Path, max_files: int = 5000) -> List[BastionIdentity]:
+    def scan_repo(self, root: Path, max_files: int = 5000) -> list[BastionIdentity]:
         """Scan a directory tree and return masked non-human identities."""
         root = Path(root).resolve()
-        identities: List[BastionIdentity] = []
+        identities: list[BastionIdentity] = []
         seen_fingerprints: set[str] = set()
         count = 0
 
@@ -266,8 +266,8 @@ class NhiAdapter(BaseAdapter):
         }.get(pattern_name, IdentityType.GENERIC_SECRET)
 
     def _make_identity(
-        self, *, name: str, provider: Optional[str], itype: IdentityType,
-        secret_value: Optional[str], rel: str, line: Optional[int], root: Path,
+        self, *, name: str, provider: str | None, itype: IdentityType,
+        secret_value: str | None, rel: str, line: int | None, root: Path,
         detector: str, privileged: bool = False, is_ai: bool = False,
     ) -> BastionIdentity:
         masked = mask_secret(secret_value) if secret_value else ""
@@ -302,14 +302,14 @@ class NhiAdapter(BaseAdapter):
 
     # --- structured config parsing ------------------------------------------
     def _parse_structured_config(self, path: Path, text: str, rel: str, root: Path
-                                 ) -> List[BastionIdentity]:
+                                 ) -> list[BastionIdentity]:
         """Extract structured non-human identities from known config formats.
 
         Currently: MCP server configs (each server + its tool surface) and
         Kubernetes ``Secret`` manifests (each data key). Malformed content is
         skipped, never raised.
         """
-        out: List[BastionIdentity] = []
+        out: list[BastionIdentity] = []
         name = path.name.lower()
 
         # MCP server configuration -> one identity per declared server.
@@ -357,7 +357,7 @@ class NhiAdapter(BaseAdapter):
         return out
 
     # --- cross-identity risk paths ------------------------------------------
-    def derive_risk_paths(self, identities: List[BastionIdentity]) -> List[Dict[str, Any]]:
+    def derive_risk_paths(self, identities: list[BastionIdentity]) -> list[dict[str, Any]]:
         """Build blast-radius risk paths across all discovered identities.
 
         Surfaces the highest-impact escalation chains: which discovered
@@ -371,7 +371,7 @@ class NhiAdapter(BaseAdapter):
             IdentityType.DEPLOYMENT_IDENTITY: "Production deploy targets",
             IdentityType.SSH_KEY: "Remote host shell access",
         }
-        paths: List[Dict[str, Any]] = []
+        paths: list[dict[str, Any]] = []
         for i in identities:
             sink = _PRIVILEGED_SINKS.get(i.identity_type)
             if not sink:
@@ -395,11 +395,11 @@ class NhiAdapter(BaseAdapter):
 
     @staticmethod
     def _blast_radius(
-        itype: IdentityType, provider: Optional[str], privileged: bool, is_ai: bool
-    ) -> Tuple[List[str], List[str]]:
+        itype: IdentityType, provider: str | None, privileged: bool, is_ai: bool
+    ) -> tuple[list[str], list[str]]:
         """Derive reachable services and a coarse permission chain (blast radius)."""
-        reachable: List[str] = []
-        chain: List[str] = ["credential"]
+        reachable: list[str] = []
+        chain: list[str] = ["credential"]
         if itype == IdentityType.CLOUD_WORKLOAD:
             reachable = ["cloud control plane", "object storage", "compute", "IAM"]
             chain = ["IAM user", "assumed role", "cloud resources"]
@@ -425,7 +425,7 @@ class NhiAdapter(BaseAdapter):
         return reachable, chain
 
     @staticmethod
-    def _remediation(itype: IdentityType, provider: Optional[str]) -> str:
+    def _remediation(itype: IdentityType, provider: str | None) -> str:
         base = "Rotate the credential at the provider, remove it from source, and store it in a secrets manager. "
         specific = {
             IdentityType.CLOUD_WORKLOAD: "Prefer short-lived workload identity federation over static keys.",
