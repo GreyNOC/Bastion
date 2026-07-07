@@ -31,7 +31,7 @@ Honest status: what is **delivered**, what is **in progress**, and what is
 - [x] Shared knowledge bases (ATT&CK, AI-abuse, post-quantum, OWASP NHI).
 - [x] Per-engine technical explanations ([docs/explanations](explanations/)).
 
-## Phase 1B — Hardening & packaging (in progress)
+## Phase 1B — Hardening & packaging (delivered)
 
 - [x] GitHub Actions CI across Python 3.10 / 3.11 / 3.12.
 - [x] Dev tooling + config: ruff, mypy, bandit, pip-audit.
@@ -49,8 +49,18 @@ Honest status: what is **delivered**, what is **in progress**, and what is
 - [x] Custom detection rule-pack loader (`BASTION_RULES_DIR` /
       `bastion detections load-custom`): linted + ReDoS-screened; accepted rules
       stay drafts until validated.
-- [ ] Per-source fetch caching + offline fallback for live feeds.
-- [ ] Packaged distribution (portable build / wheels on release).
+- [x] Per-source fetch caching + offline fallback for live feeds: an
+      integrity-checked (SHA-256) disk cache keyed by URL. A fresh copy (within
+      TTL) is served with no network request; on a transport failure a stale
+      copy is served as a fallback; `--offline` / `--refresh` control the mode.
+      The cache is never a policy bypass — the HTTPS+allowlist guard is
+      re-checked on every ingest.
+- [x] Packaged distribution: `python -m build` wheels + sdist and per-OS
+      self-contained portable bundles, built, verified, and published on tag by
+      [release.yml](../.github/workflows/release.yml). See
+      [RELEASE_PROCESS.md](RELEASE_PROCESS.md).
+
+Phase 1B is complete.
 
 ## Phase 2 — Scale & collaboration (planned)
 

@@ -188,6 +188,24 @@ CGNAT/test-net address (SSRF), and the response is size- and time-capped. Withou
 `BASTION_LIVE_FETCH=true` and an allowlisted host, the fetch is refused with a
 clear message. Offline ingestion (`--fixture <file>`) needs none of this.
 
+**Caching and offline resilience.** Fetched feed bodies are cached locally and
+integrity-checked (SHA-256). Within the TTL (`BASTION_FETCH_CACHE_TTL_SECONDS`,
+default 1h) a repeat ingest of the same URL is served from disk with **no**
+network request. If a live fetch fails on transport (network down, timeout, TLS),
+Bastion serves the last cached copy as a **stale fallback** rather than failing
+hard. Two flags give explicit control:
+
+```bash
+bastion forecast ingest --url <url> --refresh   # ignore the cache; force a live fetch
+bastion forecast ingest --url <url> --offline   # cache only; never touch the network
+```
+
+The cache is a performance/availability aid, **never a policy bypass**: the
+HTTPS + allowlist guard is re-checked on every ingest, so a cache hit can never
+resurrect a URL you have de-allowlisted, and a guard refusal (e.g. a redirect off
+the allowlist) is never masked by a stale copy. Set `BASTION_FETCH_CACHE=false`
+to disable caching entirely.
+
 ## Adding your own detection rules
 
 Point Bastion at a directory of rule JSON files:

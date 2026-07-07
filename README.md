@@ -52,6 +52,19 @@ pip install -e .
 That installs the `bastion` command. (For development, `pip install -e ".[dev]"`
 adds pytest.)
 
+**Release artifacts.** Tagged releases ship a pip-installable wheel/sdist and a
+self-contained portable bundle per OS:
+
+```bash
+# From a release wheel (Flask is pulled in as the only runtime dependency):
+pip install greynoc_bastion-<version>-py3-none-any.whl
+
+# Or grab the portable bundle for your OS, unzip, and run — needs only Python:
+unzip bastion-portable-<version>-<platform>.zip && ./bastion-portable-*/bastion status
+```
+
+See [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) for building these locally.
+
 ---
 
 ## Quick start

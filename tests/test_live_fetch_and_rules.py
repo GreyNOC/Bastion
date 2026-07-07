@@ -98,6 +98,21 @@ def test_pin_accepts_public_resolution(monkeypatch):
     assert f._pin_public_ip("feed.example") == "93.184.216.34"
 
 
+def test_pin_resolution_failure_is_transport_error(monkeypatch):
+    # A DNS/resolution failure is a *transport* problem, raised as OSError (not
+    # NetGuardError) so the ingest path can fall back to a cached copy. A
+    # resolve-to-private address stays a NetGuardError (covered above).
+    f = SafeFetcher(live_fetch_enabled=True, allowlist=["feed.example"])
+
+    def _boom(*a, **k):
+        raise OSError("temporary failure in name resolution")
+
+    monkeypatch.setattr(fetcher_mod.socket, "getaddrinfo", _boom)
+    with pytest.raises(OSError):
+        f._pin_public_ip("feed.example")
+    assert not isinstance(OSError(), NetGuardError)  # the two are disjoint
+
+
 # --- fetch flow via an injected fake connection (no real network) ------------
 class _FakeResp:
     def __init__(self, status, headers, body):

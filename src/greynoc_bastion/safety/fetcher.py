@@ -70,14 +70,23 @@ class SafeFetcher:
         self.log = get_logger("fetcher")
 
     def evaluate(self, url: str) -> FetchDecision:
-        """Pre-flight the guard for ``url`` (resolves DNS to catch SSRF)."""
+        """Pre-flight the guard for ``url``: off/HTTPS/allowlist + literal-IP SSRF.
+
+        This does NOT resolve DNS. Resolution-based SSRF is enforced
+        authoritatively by :meth:`_pin_public_ip`, which resolves the host once
+        and connects only to a vetted public IP. Keeping resolution in one place
+        matters for the taxonomy: a name-resolution *failure* must surface as a
+        transport error (``OSError`` from the pin), not as a fail-closed
+        ``NetGuardError`` from a pre-flight resolve — otherwise a network-down
+        feed can never fall back to a cached copy.
+        """
         return evaluate_fetch_target(
             url,
             live_fetch_enabled=self.live_fetch_enabled,
             allowlist=self.allowlist,
             max_bytes=self.max_bytes,
             timeout_seconds=self.timeout_seconds,
-            resolve=True,
+            resolve=False,
         )
 
     def _pin_public_ip(self, host: str) -> str:
@@ -90,7 +99,11 @@ class SafeFetcher:
         try:
             infos = socket.getaddrinfo(host, None)
         except OSError as exc:
-            raise NetGuardError(f"could not resolve host '{host}': {exc}") from None
+            # Resolution failure is a *transport* problem (network down / DNS),
+            # not a policy refusal: raise OSError so callers can fall back to a
+            # cached copy. A resolve-to-private address below is still a hard
+            # NetGuardError (SSRF), which must never be masked by the cache.
+            raise OSError(f"could not resolve host '{host}': {exc}") from exc
         vetted: list[str] = []
         for info in infos:
             addr = str(info[4][0]).split("%")[0]
@@ -110,19 +123,24 @@ class SafeFetcher:
     def fetch(self, url: str, *, audit=None) -> FetchResult:
         """Fetch ``url`` iff it passes the guard at every hop. Never auto-follows.
 
-        Raises :class:`NetGuardError` if the request (or any redirect) is refused,
-        or :class:`OSError`/:class:`TimeoutError`/``ssl.SSLError`` on transport
-        failure. ``audit`` is an optional callable ``(action, detail)``.
+        Raises :class:`NetGuardError` if the request (or any redirect) is refused
+        (policy / SSRF — never a transport problem), or a transport failure:
+        :class:`OSError` (network down, DNS failure, ``TimeoutError``,
+        ``ssl.SSLError``) or :class:`http.client.HTTPException` (malformed or
+        truncated response). ``audit`` is an optional callable ``(action, detail)``.
         """
         current = url
         hops = 0
         while True:
-            # 1) Literal + allowlist + off/https checks (also resolves for SSRF).
+            # 1) Off/HTTPS/allowlist + literal-IP SSRF checks (no DNS here).
             decision = self.evaluate(current).raise_if_blocked()
             parsed = urlparse(current)
             host = parsed.hostname or ""
             port = parsed.port or 443
-            # 2) Authoritative resolve-and-pin: connect only to a vetted public IP.
+            # 2) Authoritative resolve-and-pin: the ONLY place DNS is resolved.
+            #    A resolution failure raises OSError (transport → caller may fall
+            #    back to cache); a resolve-to-private raises NetGuardError (SSRF,
+            #    never masked). Connect only to the vetted public IP.
             pinned_ip = self._pin_public_ip(host)
             if audit:
                 audit("live_fetch", f"GET {decision.host} -> {pinned_ip} (allowlisted, https, pinned)")
