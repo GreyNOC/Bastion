@@ -148,13 +148,14 @@ class ReportCenter:
             "source", "affected", "validation_status", "why_it_matters",
             "recommended_action", "false_positive_notes", "timestamp",
         ])
+        s = _csv_safe  # neutralize spreadsheet formula injection
         for f in sorted(report.findings, key=lambda x: x.priority_score, reverse=True):
             writer.writerow([
-                f.correlation_id, scrub_text(f.title), f.severity.value,
-                f.confidence.value, f.category.value, f.source,
-                scrub_text(f.affected), f.validation_status.value,
-                scrub_text(f.why_it_matters), scrub_text(f.recommended_action),
-                scrub_text(f.false_positive_notes), f.timestamp,
+                s(f.correlation_id), s(scrub_text(f.title)), f.severity.value,
+                f.confidence.value, f.category.value, s(scrub_text(f.source)),
+                s(scrub_text(f.affected)), f.validation_status.value,
+                s(scrub_text(f.why_it_matters)), s(scrub_text(f.recommended_action)),
+                s(scrub_text(f.false_positive_notes)), f.timestamp,
             ])
         return buf.getvalue()
 
@@ -208,7 +209,9 @@ class ReportCenter:
 
     @staticmethod
     def _as_uri(affected: str) -> str:
-        a = (affected or "").strip()
+        # Scrub: `affected` is free-form producer text (repo path, host:port,
+        # connection string) and is the one SARIF field not otherwise scrubbed.
+        a = scrub_text((affected or "").strip())
         if not a:
             return "unknown"
         return a.replace("\\", "/")
@@ -219,6 +222,20 @@ class ReportCenter:
     def to_pdf(self, report: BastionReport) -> bytes:
         """Render a simple, valid multi-page PDF with no third-party deps."""
         return _text_to_pdf(_report_plaintext(report))
+
+
+# --- CSV formula-injection neutralization -----------------------------------
+# A cell whose first character is one of these is interpreted as a formula by
+# Excel / LibreOffice / Google Sheets. Prefix such cells with a single quote so
+# the spreadsheet treats them as literal text. See OWASP "CSV Injection".
+_CSV_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(value) -> str:
+    text = "" if value is None else str(value)
+    if text[:1] in _CSV_TRIGGERS:
+        return "'" + text
+    return text
 
 
 # --- HTML rendering (shared with the dashboard) -----------------------------
@@ -248,12 +265,12 @@ def render_html_report(report: BastionReport) -> str:
             <span class="fmeta">{_esc(f.category.value)} · {_esc(f.confidence.value)} confidence · {_esc(f.validation_status.value)}</span>
           </summary>
           <div class="fbody">
-            <p><strong>Affected:</strong> <code>{_esc(f.affected)}</code></p>
+            <p><strong>Affected:</strong> <code>{_esc(scrub_text(f.affected))}</code></p>
             <p><strong>Why it matters:</strong> {_esc(scrub_text(f.why_it_matters))}</p>
             <p><strong>Recommended action:</strong> {_esc(scrub_text(f.recommended_action))}</p>
             {'<p><strong>Evidence:</strong></p><ul>' + ev_html + '</ul>' if ev_html else ''}
             {'<p class="fp"><strong>False-positive notes:</strong> ' + _esc(scrub_text(f.false_positive_notes)) + '</p>' if f.false_positive_notes else ''}
-            <p class="cid">Correlation ID: <code>{_esc(f.correlation_id)}</code> · {_esc(f.timestamp)} · source: {_esc(f.source)}</p>
+            <p class="cid">Correlation ID: <code>{_esc(f.correlation_id)}</code> · {_esc(f.timestamp)} · source: {_esc(scrub_text(f.source))}</p>
           </div>
         </details>""")
 

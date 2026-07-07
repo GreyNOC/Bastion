@@ -27,7 +27,10 @@ from ..schemas import (
     ValidationStatus,
 )
 from ..utils.redos import safe_compile
+from ..utils.logging import get_logger
 from .base import BaseAdapter
+
+_log = get_logger("adapter.dmz.match")
 
 
 def _parse_ts(value: str) -> datetime:
@@ -63,7 +66,13 @@ def _match_condition(event: Dict[str, Any], field: str, matcher: Any) -> bool:
         target = matcher.get("value")
         if op == "regex":
             pattern = safe_compile(str(target))
-            if pattern is None:  # refused by ReDoS guard or invalid
+            if pattern is None:  # refused by ReDoS guard or invalid regex
+                # Surface this: a refused pattern means the rule cannot detect
+                # anything, which would otherwise be a silent false negative.
+                _log.warning(
+                    "detection regex refused (invalid or ReDoS-risky); rule field %r "
+                    "will not match: %r", field, str(target)[:80],
+                )
                 return False
             return bool(pattern.search(str(value)))
         try:
@@ -82,13 +91,15 @@ def _match_condition(event: Dict[str, Any], field: str, matcher: Any) -> bool:
             return str(value).lower() in [str(t).lower() for t in (target or [])]
         return False
 
-    # Scalar matcher: numeric equality, or case-insensitive substring for text.
+    # Scalar matcher: exact equality (case-insensitive for text). Substring
+    # matching would over-match (e.g. "200" inside "2000"); rules that want
+    # substring semantics must use the explicit {"op": "contains"} form.
     if isinstance(matcher, (int, float)) and not isinstance(matcher, bool):
         try:
             return float(value) == float(matcher)
         except (TypeError, ValueError):
             return False
-    return str(matcher).lower() in str(value).lower()
+    return str(value).lower() == str(matcher).lower()
 
 
 class DmzAdapter(BaseAdapter):
@@ -160,7 +171,10 @@ class DmzAdapter(BaseAdapter):
         for ev in events:
             if not self.event_matches_rule(ev, rule):
                 continue
-            key = (ev.get("host"), ev.get("user"))
+            # Resolve host/user with the same top-level-then-nested resolver used
+            # for matching, so events that carry these under "fields" group with
+            # their top-level siblings instead of forming a separate group.
+            key = (_get_field(ev, "host"), _get_field(ev, "user"))
             groups.setdefault(key, []).append((_parse_ts(ev.get("timestamp", "")), ev))
 
         alerts: List[Dict[str, Any]] = []

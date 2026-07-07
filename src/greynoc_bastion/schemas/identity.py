@@ -57,8 +57,13 @@ class BastionIdentity(BastionModel):
     metadata: Dict[str, Any] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Hard invariant: if any field smells like a full secret, refuse it.
-        # The masking utility is the only sanctioned way to populate previews.
-        if self.masked_preview and "*" not in self.masked_preview and len(self.masked_preview) > 12:
-            # Looks unmasked — collapse it defensively rather than store it.
-            self.masked_preview = self.masked_preview[:4] + "****(unmasked-collapsed)"
+        # Hard invariant backstop: a stored preview must actually be masked.
+        # A properly masked preview (from safety.masking.mask_secret) is mostly
+        # stars. If the value has no stars, or too few to be a real mask, run it
+        # back through the sanctioned masking utility rather than store it raw.
+        mp = self.masked_preview or ""
+        if mp:
+            star_ratio = mp.count("*") / len(mp)
+            if "*" not in mp or star_ratio < 0.25:
+                from ..safety.masking import mask_secret
+                self.masked_preview = mask_secret(mp)

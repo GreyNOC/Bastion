@@ -70,6 +70,18 @@ def test_sarif_is_valid_json_210(tmp_path):
     assert len(doc["runs"][0]["results"]) == 1
 
 
+def test_evidence_bundle_resists_zip_slip(tmp_path):
+    # A finding whose correlation_id contains path traversal must not produce a
+    # zip entry that escapes the extraction directory (zip-slip).
+    from greynoc_bastion.schemas import BastionFinding, Severity
+    f = BastionFinding(title="x", severity=Severity.LOW, correlation_id="../../etc/evil")
+    rep = BastionReport(title="t", findings=[f]).recompute_summary()
+    import zipfile
+    bundle = EvidenceCenter().build_bundle(rep, tmp_path)
+    names = zipfile.ZipFile(bundle).namelist()
+    assert all(".." not in n and not n.startswith("/") and ":" not in n[2:] for n in names), names
+
+
 def test_evidence_bundle_builds_and_verifies(tmp_path):
     rep = _report_with_leaky_finding()
     ec = EvidenceCenter()
@@ -82,6 +94,46 @@ def test_evidence_bundle_builds_and_verifies(tmp_path):
     result = ec.verify_bundle(bundle_path)
     assert result["ok"], result["problems"]
     assert result["entry_count"] >= 3
+
+
+def test_csv_neutralizes_formula_injection():
+    # Cells beginning with = + - @ must be neutralized so spreadsheets treat
+    # them as text, not formulas (OWASP CSV Injection).
+    f = BastionFinding(
+        title="=HYPERLINK(0)", severity=Severity.HIGH, confidence=Confidence.MEDIUM,
+        category=FindingCategory.ASSET, source="+cmd", affected="-2+3",
+        why_it_matters="@SUM(1)", recommended_action="normal text",
+    )
+    csv_text = ReportCenter().to_csv(BastionReport(findings=[f]).recompute_summary())
+    import csv as _csv
+    rows = list(_csv.reader(csv_text.splitlines()))
+    for cell in rows[1]:
+        assert cell[:1] not in ("=", "+", "-", "@"), f"un-neutralized formula cell: {cell!r}"
+    # normal cells are untouched
+    assert "normal text" in csv_text
+
+
+def test_sarif_and_html_scrub_the_affected_field(tmp_path):
+    # `affected` is the one field that previously bypassed the scrub backstop
+    # in SARIF and HTML.
+    f = BastionFinding(
+        title="x", severity=Severity.HIGH, confidence=Confidence.MEDIUM,
+        category=FindingCategory.IDENTITY,
+        affected="postgres://u:AKIAIOSFODNN7EXAMPLE@db/x", source="ghp_" + "a" * 36,
+    )
+    rep = BastionReport(findings=[f]).recompute_summary()
+    rc = ReportCenter()
+    assert "AKIAIOSFODNN7EXAMPLE" not in rc.to_sarif(rep)
+    html = rc.to_html(rep)
+    assert "AKIAIOSFODNN7EXAMPLE" not in html and "ghp_" + "a" * 36 not in html
+
+
+def test_verify_bundle_handles_malformed_archive(tmp_path):
+    # A non-bundle file must be reported as a failure, not raise.
+    bad = tmp_path / "not-a-bundle.zip"
+    bad.write_text("garbage", encoding="utf-8")
+    result = EvidenceCenter().verify_bundle(bad)
+    assert result["ok"] is False and result["problems"]
 
 
 def test_report_json_roundtrips(tmp_path):

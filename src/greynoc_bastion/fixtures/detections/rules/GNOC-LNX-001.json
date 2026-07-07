@@ -6,10 +6,16 @@
   "data_source": "linux",
   "event_type": "process_event",
   "match": {
-    "message": "/etc/shadow"
+    "message": {
+      "op": "contains",
+      "value": "/etc/shadow"
+    }
   },
   "threshold": 1,
   "window_minutes": 5,
-  "mitre": ["TA0006", "T1003"],
+  "mitre": [
+    "TA0006",
+    "T1003"
+  ],
   "runbook": "runbooks/linux-sensitive-file.md"
 }

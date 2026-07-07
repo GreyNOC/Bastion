@@ -9,6 +9,8 @@ route used by tests and monitoring.
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import secrets
 from typing import Optional
 
 from flask import (
@@ -32,7 +34,10 @@ def create_app(bastion: BastionApp) -> Flask:
         template_folder=str(Path(__file__).with_name("templates")),
         static_folder=str(Path(__file__).with_name("static")),
     )
-    app.config["SECRET_KEY"] = "bastion-local-only"  # loopback-only; flash msgs only
+    # Per-process random key (flash messages only; the dashboard is loopback and
+    # unauthenticated). Override via BASTION_WEB_SECRET only if you need sessions
+    # to survive a restart. Never a committed constant.
+    app.config["SECRET_KEY"] = os.environ.get("BASTION_WEB_SECRET") or secrets.token_hex(16)
 
     def ctx():
         posture = bastion.safety_status().posture

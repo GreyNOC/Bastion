@@ -59,7 +59,9 @@ class TrustAssessment:
 def _excerpt(text: str, start: int, end: int, pad: int = 24) -> str:
     a = max(0, start - pad)
     b = min(len(text), end + pad)
-    return text[a:b].replace("\n", " ").strip()
+    # Scrub: the excerpt is a slice of untrusted content and may straddle a
+    # secret; never surface a full secret in an injection assessment.
+    return scrub_text(text[a:b].replace("\n", " ").strip())
 
 
 class GreyIQAdapter(BaseAdapter):

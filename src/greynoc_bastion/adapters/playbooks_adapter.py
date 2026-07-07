@@ -197,7 +197,13 @@ class PlaybooksAdapter(BaseAdapter):
 
     def get(self, slug_or_name: str) -> Optional[BastionPlaybook]:
         key = slug_or_name.lower().strip()
-        for pb in self.load_all():
-            if pb.slug.lower() == key or pb.name.lower() == key or key in pb.slug.lower():
+        playbooks = self.load_all()
+        # 1) Exact slug or name match wins.
+        for pb in playbooks:
+            if pb.slug.lower() == key or pb.name.lower() == key:
                 return pb
-        return None
+        # 2) Otherwise accept a partial match ONLY if it is unambiguous, so a
+        # partial like "1" never silently resolves to the first playbook that
+        # happens to contain it.
+        partial = [pb for pb in playbooks if key and (key in pb.slug.lower() or key in pb.name.lower())]
+        return partial[0] if len(partial) == 1 else None

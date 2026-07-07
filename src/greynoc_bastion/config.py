@@ -173,7 +173,9 @@ def load_config(
         return layered.get(key, default)
 
     home_raw = get("BASTION_HOME")
-    home = Path(home_raw).expanduser() if home_raw else (Path.home() / ".greynoc-bastion")
+    # Resolve to an absolute path so db_path/report_dir are cwd-independent
+    # (a relative BASTION_HOME would otherwise move with the process's cwd).
+    home = Path(home_raw).expanduser().resolve() if home_raw else (Path.home() / ".greynoc-bastion")
 
     db_path = _resolve_path(home, get("BASTION_DB_PATH", "bastion.db"), home / "bastion.db")
     report_dir = _resolve_path(home, get("BASTION_REPORT_DIR", "reports"), home / "reports")

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Dict, List
@@ -22,6 +23,15 @@ from ..safety.masking import scrub_text
 from ..schemas import BastionReport, ReportFormat, utcnow_iso
 from ..utils.logging import get_logger
 from .report_center import ReportCenter
+
+_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _safe_entry_name(value: str) -> str:
+    """Reduce an id to a safe archive filename (no separators, no traversal)."""
+    cleaned = _UNSAFE_NAME.sub("_", str(value or ""))
+    cleaned = cleaned.strip("._")            # no leading dots -> no ".." traversal
+    return cleaned[:80]
 
 
 class EvidenceCenter:
@@ -44,10 +54,19 @@ class EvidenceCenter:
         entries["report.html"] = self._rc.to_html(report).encode("utf-8")
 
         finding_index: List[dict] = []
-        for f in report.findings:
+        used_names: set[str] = set()
+        for idx, f in enumerate(report.findings):
             payload = json.dumps(f.to_dict(), indent=2, ensure_ascii=False)
             payload = scrub_text(payload).encode("utf-8")
-            name = f"findings/{f.correlation_id}.json"
+            # Sanitize the id before using it as an archive path: a
+            # correlation_id imported from untrusted data could contain "../"
+            # or separators and produce a zip-slip entry. Fall back to the index.
+            safe_id = _safe_entry_name(f.correlation_id) or f"finding-{idx}"
+            name = f"findings/{safe_id}.json"
+            while name in used_names:  # guarantee uniqueness after sanitizing
+                name = f"findings/{safe_id}-{idx}.json"
+                idx += 1
+            used_names.add(name)
             entries[name] = payload
             finding_index.append({
                 "correlation_id": f.correlation_id,
@@ -89,20 +108,36 @@ class EvidenceCenter:
         return str(bundle_path)
 
     def verify_bundle(self, bundle_path: Path) -> Dict[str, object]:
-        """Re-open a bundle and verify every entry hash against the manifest."""
+        """Re-open a bundle and verify every entry hash against the manifest.
+
+        A malformed archive (not a zip, no ``manifest.json``, bad JSON) is
+        reported as a verification failure, never raised.
+        """
         bundle_path = Path(bundle_path)
-        with zipfile.ZipFile(bundle_path, "r") as zf:
-            manifest = json.loads(zf.read("manifest.json"))
-            problems: List[str] = []
-            for name, meta in manifest.get("entries", {}).items():
+        problems: List[str] = []
+        manifest: Dict[str, object] = {}
+        try:
+            with zipfile.ZipFile(bundle_path, "r") as zf:
                 try:
-                    data = zf.read(name)
+                    manifest = json.loads(zf.read("manifest.json"))
                 except KeyError:
-                    problems.append(f"missing entry: {name}")
-                    continue
-                actual = hashlib.sha256(data).hexdigest()
-                if actual != meta.get("sha256"):
-                    problems.append(f"hash mismatch: {name}")
+                    return {"bundle": str(bundle_path), "report_id": None,
+                            "ok": False, "problems": ["missing manifest.json"], "entry_count": 0}
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    return {"bundle": str(bundle_path), "report_id": None,
+                            "ok": False, "problems": [f"unreadable manifest: {exc}"], "entry_count": 0}
+                for name, meta in manifest.get("entries", {}).items():
+                    try:
+                        data = zf.read(name)
+                    except KeyError:
+                        problems.append(f"missing entry: {name}")
+                        continue
+                    actual = hashlib.sha256(data).hexdigest()
+                    if actual != meta.get("sha256"):
+                        problems.append(f"hash mismatch: {name}")
+        except (zipfile.BadZipFile, OSError) as exc:
+            return {"bundle": str(bundle_path), "report_id": None,
+                    "ok": False, "problems": [f"not a readable bundle: {exc}"], "entry_count": 0}
         return {
             "bundle": str(bundle_path),
             "report_id": manifest.get("report_id"),

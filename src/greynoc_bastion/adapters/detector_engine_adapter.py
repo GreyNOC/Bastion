@@ -31,6 +31,16 @@ from .base import BaseAdapter
 
 _CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
 
+
+def _coerce_float(value, default):
+    """Coerce a possibly-string/None feed value to float, else ``default``."""
+    if isinstance(value, bool):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
 # Product / exposure keywords that raise "public exposure" relevance because
 # they typically sit at the network edge.
 _EDGE_TERMS = (
@@ -79,7 +89,7 @@ class DetectorEngineAdapter(BaseAdapter):
             for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
                 arr = metrics.get(key) or []
                 if arr:
-                    cvss = arr[0].get("cvssData", {}).get("baseScore")
+                    cvss = _coerce_float(arr[0].get("cvssData", {}).get("baseScore"), None)
                     break
             cwes: List[str] = []
             for w in cve.get("weaknesses", []):
@@ -130,7 +140,7 @@ class DetectorEngineAdapter(BaseAdapter):
         for row in data.get("data", []):
             cid = (row.get("cve") or "").upper()
             try:
-                out[cid] = float(row.get("epss"))
+                out[cid] = min(1.0, max(0.0, float(row.get("epss"))))  # clamp to [0,1]
             except (TypeError, ValueError):
                 continue
         return out
@@ -147,9 +157,11 @@ class DetectorEngineAdapter(BaseAdapter):
         """Compute an explainable multi-signal score for one CVE."""
         text = f"{cve.get('description', '')} {' '.join(cve.get('products', []))}".lower()
 
-        cvss = cve.get("cvss") or 0.0
-        evidence_strength = min(1.0, 0.4 + (0.6 if kev else 0.0) + (0.2 if epss else 0.0))
-        exploit_likelihood = float(epss) if epss is not None else min(1.0, cvss / 10.0 * 0.6)
+        cvss_raw = cve.get("cvss")
+        cvss = float(cvss_raw) if isinstance(cvss_raw, (int, float)) else _coerce_float(cvss_raw, 0.0)
+        evidence_strength = min(1.0, 0.4 + (0.6 if kev else 0.0) + (0.2 if epss is not None else 0.0))
+        epss_clamped = min(1.0, max(0.0, float(epss))) if epss is not None else None
+        exploit_likelihood = epss_clamped if epss_clamped is not None else min(1.0, cvss / 10.0 * 0.6)
         if any(t in text for t in _EXPLOIT_TERMS):
             exploit_likelihood = min(1.0, exploit_likelihood + 0.2)
 

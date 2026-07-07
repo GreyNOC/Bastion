@@ -16,7 +16,7 @@ from typing import Iterable
 # to classify identities and to scrub free text (logs, notes, report bodies).
 # Order matters: more specific provider tokens first.
 _SECRET_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
-    ("aws_access_key", re.compile(r"\b(AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("aws_access_key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github_token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
     ("slack_token", re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}\b")),
     ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b")),
@@ -37,12 +37,14 @@ _REDACTION = "***REDACTED***"
 # Scrub-only patterns: applied by ``scrub_text`` as a defense-in-depth backstop
 # but NOT used to classify identities (they would over-flag). Catches long,
 # high-entropy tokens (e.g. a bare 40-char AWS secret access key) that carry no
-# ``key=`` prefix. Requires both a letter and a digit to avoid redacting plain
-# words or prose.
+# ``key=`` prefix. Requires at least one letter (so long all-digit account/ID
+# numbers are spared) but NOT a digit (so all-letter tokens are still caught).
+# The length is bounded (32-256) so the lookahead stays linear-time — a scrub
+# call can never itself become a ReDoS.
 _SCRUB_EXTRA: list[tuple[str, "re.Pattern[str]"]] = [
     ("high_entropy_token", re.compile(
-        r"\b(?=[A-Za-z0-9+/_\-]{32,}\b)(?=[A-Za-z0-9+/_\-]*[A-Za-z])"
-        r"(?=[A-Za-z0-9+/_\-]*[0-9])[A-Za-z0-9+/_\-]{32,}\b"
+        r"\b(?=[A-Za-z0-9+/_\-]{32,256}\b)(?=[A-Za-z0-9+/_\-]*[A-Za-z])"
+        r"[A-Za-z0-9+/_\-]{32,256}\b"
     )),
 ]
 
