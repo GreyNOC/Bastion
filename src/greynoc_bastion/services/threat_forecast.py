@@ -52,7 +52,10 @@ class ThreatForecastService:
                 self.db.audit(action, actor="threat_forecast", detail=detail)
 
         result = fetcher.fetch(url, audit=_audit)
-        data = json.loads(result.body.decode("utf-8", "replace"))
+        try:
+            data = json.loads(result.body.decode("utf-8", "replace"))
+        except (ValueError, RecursionError) as exc:
+            raise RuntimeError(f"fetched feed is not valid JSON: {type(exc).__name__}") from None
         cves = self.adapter.parse_cve_feed(data)
         threats = self.adapter.build_threats(cves, {}, {}, sectors)
         if persist and self.db:

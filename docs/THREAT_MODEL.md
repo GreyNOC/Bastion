@@ -57,12 +57,12 @@ enforcement table in [SAFETY_MODEL.md](SAFETY_MODEL.md).
   (hash), not tamper-*proof* (no signature yet — Phase 3).
 - **Active network reconnaissance.** Intentionally not built. Active checks are
   limited to loopback liveness of your own services.
-- **DNS rebinding on live fetch.** The guarded fetcher resolves and re-checks the
-  target at pre-flight, but a TOCTOU gap between the check and the socket connect
-  remains. The primary control is the **allowlist** (only operator-approved hosts
-  can be fetched at all) plus TLS certificate validation; a rebinding attack would
-  require the allowlisted host's own DNS to be attacker-controlled. Pinning the
-  connection to the verified address is a future hardening.
+- **DNS rebinding on live fetch.** Mitigated: the guarded fetcher resolves the
+  host once, refuses if *any* returned address is non-public, and **pins the
+  connection to the vetted IP** (with SNI/cert validation against the real
+  hostname), so a DNS flip between check and connect cannot redirect the socket
+  to a private/loopback/metadata address. The allowlist remains the primary
+  control (only operator-approved hosts are fetchable at all).
 - **Host compromise.** Bastion assumes the host it runs on is trusted; it does
   not defend against a fully compromised host.
 

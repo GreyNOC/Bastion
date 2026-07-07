@@ -404,6 +404,10 @@ class DmzAdapter(BaseAdapter):
             return {"rules_dir": str(rules_dir), "accepted": [], "rejected": [],
                     "note": "rules directory does not exist"}
 
+        # A custom rule must never reuse a bundled (validated) rule's id — that
+        # would let an unvalidated DRAFT overwrite a validated detection in the
+        # store (INSERT OR REPLACE by id). Reserve the bundled ids.
+        bundled_ids = {r.get("id") for r in self.load_rules() if r.get("id")}
         seen_ids: set[str] = set()
         for f in sorted(rules_dir.glob("*.json")):
             try:
@@ -411,8 +415,10 @@ class DmzAdapter(BaseAdapter):
                     rejected.append({"file": f.name, "id": None, "errors": ["file too large (>512KB)"]})
                     continue
                 rule = json.loads(f.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                rejected.append({"file": f.name, "id": None, "errors": [f"unreadable: {exc}"]})
+            except (OSError, ValueError, RecursionError) as exc:
+                # ValueError covers JSONDecodeError; RecursionError covers
+                # deeply-nested JSON. One bad file must never abort the load.
+                rejected.append({"file": f.name, "id": None, "errors": [f"unreadable: {type(exc).__name__}"]})
                 continue
             if not isinstance(rule, dict):
                 rejected.append({"file": f.name, "id": None, "errors": ["rule is not a JSON object"]})
@@ -420,6 +426,8 @@ class DmzAdapter(BaseAdapter):
             rid = rule.get("id")
             issues = self.lint_rule(rule)
             errors = [i["message"] for i in issues if i["severity"] == "error"]
+            if rid and rid in bundled_ids:
+                errors.append(f"rule id '{rid}' collides with a bundled detection; choose a unique id")
             if rid and rid in seen_ids:
                 errors.append(f"duplicate rule id '{rid}'")
             if errors:
