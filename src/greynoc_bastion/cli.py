@@ -98,8 +98,13 @@ def cmd_forecast(args) -> int:
         if url:
             # Guarded live fetch (off by default). Refuses unless live fetching
             # is enabled; HTTPS-only, allowlisted, SSRF-blocked, size/time-capped.
+            # Cache modes: --refresh forces live, --offline uses cache only.
             try:
-                threats = app.threat_forecast.ingest_url(url, sectors=sectors, persist=True)
+                threats = app.threat_forecast.ingest_url(
+                    url, sectors=sectors, persist=True,
+                    refresh=getattr(args, "refresh", False),
+                    offline=getattr(args, "offline", False),
+                )
             except Exception as exc:  # noqa: BLE001 - surface a clear operator message
                 print(f"error: live fetch refused or failed: {exc}", file=sys.stderr)
                 return 2
@@ -454,6 +459,11 @@ def build_parser() -> argparse.ArgumentParser:
     fisrc = fi.add_mutually_exclusive_group(required=True)
     fisrc.add_argument("--fixture", help="path to a CVE feed JSON (offline)")
     fisrc.add_argument("--url", help="HTTPS CVE-feed URL; requires BASTION_LIVE_FETCH=true and allowlist")
+    ficache = fi.add_mutually_exclusive_group()
+    ficache.add_argument("--refresh", action="store_true",
+                         help="with --url: force a live fetch, ignoring any fresh cache")
+    ficache.add_argument("--offline", action="store_true",
+                         help="with --url: serve only from the local cache; never touch the network")
     fi.add_argument("--sectors", help="comma-separated sector relevance hints")
     fi.add_argument("--pretty", action="store_true")
     fi.set_defaults(func=cmd_forecast, persist=True)

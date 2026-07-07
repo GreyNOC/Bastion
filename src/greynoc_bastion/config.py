@@ -71,6 +71,14 @@ class BastionConfig:
     fetch_max_bytes: int = 10 * 1024 * 1024
     fetch_timeout_seconds: int = 20
 
+    # Per-source feed cache (integrity-checked; local-only). On by default: it
+    # only ever caches bodies the guarded fetcher already returned, and it is a
+    # performance/offline-resilience aid — never a policy gate (see FeedCache).
+    fetch_cache: bool = True
+    fetch_cache_ttl_seconds: int = 3600
+    fetch_cache_dir: Path = dataclasses.field(
+        default_factory=lambda: Path.home() / ".greynoc-bastion" / "cache" / "feeds")
+
     # Active local checks (Assets & Exposure)
     active_checks: bool = False
 
@@ -120,6 +128,9 @@ class BastionConfig:
             "fetch_allowlist": list(self.fetch_allowlist),
             "fetch_max_bytes": self.fetch_max_bytes,
             "fetch_timeout_seconds": self.fetch_timeout_seconds,
+            "fetch_cache": self.fetch_cache,
+            "fetch_cache_ttl_seconds": self.fetch_cache_ttl_seconds,
+            "fetch_cache_dir": str(self.fetch_cache_dir),
             "active_checks": self.active_checks,
             "allow_remote_dashboard": self.allow_remote_dashboard,
             "dashboard_token_set": bool(self.dashboard_token),  # never expose the value
@@ -163,6 +174,7 @@ def load_config(
         "BASTION_HOST", "BASTION_PORT", "BASTION_HOME", "BASTION_DB_PATH",
         "BASTION_REPORT_DIR", "BASTION_LIVE_FETCH", "BASTION_FETCH_ALLOWLIST",
         "BASTION_FETCH_MAX_BYTES", "BASTION_FETCH_TIMEOUT_SECONDS",
+        "BASTION_FETCH_CACHE", "BASTION_FETCH_CACHE_TTL_SECONDS", "BASTION_FETCH_CACHE_DIR",
         "BASTION_ACTIVE_CHECKS", "BASTION_RULES_DIR",
         "BASTION_ALLOW_REMOTE_DASHBOARD",
         "BASTION_DASHBOARD_TOKEN", "BASTION_WEB_SECRET", "BASTION_AI_ASSISTANT",
@@ -191,6 +203,8 @@ def load_config(
 
     db_path = _resolve_path(home, get("BASTION_DB_PATH", "bastion.db"), home / "bastion.db")
     report_dir = _resolve_path(home, get("BASTION_REPORT_DIR", "reports"), home / "reports")
+    fetch_cache_dir = _resolve_path(
+        home, get("BASTION_FETCH_CACHE_DIR", "cache/feeds"), home / "cache" / "feeds")
 
     allowlist_raw = get("BASTION_FETCH_ALLOWLIST")
     allowlist = (
@@ -215,6 +229,11 @@ def load_config(
         fetch_allowlist=allowlist,
         fetch_max_bytes=_int("BASTION_FETCH_MAX_BYTES", 10 * 1024 * 1024),
         fetch_timeout_seconds=_int("BASTION_FETCH_TIMEOUT_SECONDS", 20),
+        # Use layered.get (None when absent) so an *unset* key keeps the True
+        # default — get() would return "" which _parse_bool reads as False.
+        fetch_cache=_parse_bool(layered.get("BASTION_FETCH_CACHE"), True),
+        fetch_cache_ttl_seconds=_int("BASTION_FETCH_CACHE_TTL_SECONDS", 3600),
+        fetch_cache_dir=fetch_cache_dir,
         active_checks=_parse_bool(get("BASTION_ACTIVE_CHECKS"), False),
         rules_dir=(Path(get("BASTION_RULES_DIR")).expanduser() if get("BASTION_RULES_DIR") else None),
         allow_remote_dashboard=get("BASTION_ALLOW_REMOTE_DASHBOARD").strip() == "1",
