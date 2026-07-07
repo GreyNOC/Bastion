@@ -30,6 +30,8 @@ from .services import (
     ReportCenter,
     ThreatForecastService,
 )
+from .services.correlation import CorrelationService
+from .services.threat_intel_export import to_attack_navigator_layer, to_stix_bundle
 from .utils.logging import get_logger, setup_logging
 
 __all__ = ["BastionApp"]
@@ -52,6 +54,7 @@ class BastionApp:
         self.report_center = ReportCenter()
         self.evidence_center = EvidenceCenter()
         self.ai = AIAssistantService(self.config, self.db)
+        self.correlation = CorrelationService(self.db)
 
     # --- status / health -----------------------------------------------------
     def safety_status(self) -> SafetyStatus:
@@ -158,3 +161,30 @@ class BastionApp:
             self.evidence_center.build_bundle(report, out_dir)
         self.db.save_report(report)
         return report
+
+    # --- full-capacity engine surfaces --------------------------------------
+    def correlate(self) -> Dict[str, Any]:
+        """Build the cross-engine correlation view (clusters + coverage gaps)."""
+        return self.correlation.build()
+
+    def detection_coverage(self) -> Dict[str, Any]:
+        """ATT&CK coverage map + tactic gaps for the detection pack."""
+        return self.detection.dmz.build_coverage()
+
+    def lint_detections(self) -> Dict[str, Any]:
+        """Static-lint every detection rule."""
+        return self.detection.dmz.lint_all()
+
+    def identity_risk_paths(self, path: Path) -> List[Dict[str, Any]]:
+        """Scan a repo and derive cross-identity blast-radius risk paths."""
+        identities = self.identity.scan(path, persist=True)
+        return self.identity.adapter.derive_risk_paths(identities)
+
+    def export_threat_intel(self, fmt: str) -> str:
+        """Export stored threats as 'stix' or 'navigator'."""
+        threats = self.db.list_threats(limit=1000)
+        if fmt == "stix":
+            return to_stix_bundle(threats)
+        if fmt == "navigator":
+            return to_attack_navigator_layer(threats)
+        raise ValueError(f"unknown intel export format: {fmt}")

@@ -46,6 +46,7 @@ class BastionIdentity(BastionModel):
     privileged: bool = False
     reachable_services: List[str] = dataclasses.field(default_factory=list)
     permission_chain: List[str] = dataclasses.field(default_factory=list)  # A -> B -> C
+    owasp_refs: List[Dict[str, str]] = dataclasses.field(default_factory=list)  # OWASP NHI Top 10
     is_active_unknown: bool = True          # we never test liveness; always "unknown"
 
     recommended_action: str = ""

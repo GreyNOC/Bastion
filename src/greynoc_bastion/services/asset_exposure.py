@@ -39,6 +39,35 @@ class AssetExposureService:
         self.homeguard = homeguard or HomeGuardAdapter()
         self.log = get_logger("asset_exposure")
 
+    # --- known-good baseline -------------------------------------------------
+    @staticmethod
+    def service_signature(host: str, port, service_name: str = "") -> str:
+        """Stable cross-scan identity for a listening service."""
+        from ..schemas import stable_fingerprint
+        return stable_fingerprint("svc", host, port, (service_name or "").lower())
+
+    def set_baseline(self, assets: List[BastionAsset]) -> int:
+        """Record the current assets as the known-good baseline."""
+        sigs = sorted({self.service_signature(a.host, a.port, a.service_name) for a in assets})
+        if self.db:
+            import json
+            self.db.set_meta("asset_baseline", json.dumps(sigs))
+            self.db.audit("asset_baseline_set", actor="asset_exposure",
+                          detail=f"{len(sigs)} services baselined")
+        return len(sigs)
+
+    def _load_baseline(self) -> set:
+        if not self.db:
+            return set()
+        raw = self.db.get_meta("asset_baseline")
+        if not raw:
+            return set()
+        try:
+            import json
+            return set(json.loads(raw))
+        except (ValueError, TypeError):
+            return set()
+
     def scan_local(
         self,
         *,
@@ -46,13 +75,15 @@ class AssetExposureService:
         active_checks_enabled: bool = False,
         observations: Optional[List[Dict[str, Any]]] = None,
         baseline_ports: Optional[List[int]] = None,
+        detect_drift: bool = True,
         persist: bool = True,
     ) -> List[BastionAsset]:
         """Review local assets.
 
         ``passive=True`` reads the local socket table (no packets sent). Active
         checks are only attempted when ``active_checks_enabled`` is True — that
-        flag comes from config and is audited by the caller.
+        flag comes from config and is audited by the caller. When a known-good
+        baseline exists, services absent from it are flagged as drift.
         """
         baseline = set(baseline_ports or [])
         if observations is None:
@@ -66,6 +97,22 @@ class AssetExposureService:
             obs.setdefault("in_baseline", obs.get("port") in baseline)
 
         assets = self.homeguard.review_observations(observations)
+
+        # Drift detection against a stored known-good baseline.
+        known = self._load_baseline() if detect_drift else set()
+        if known:
+            for a in assets:
+                sig = self.service_signature(a.host, a.port, a.service_name)
+                if sig in known:
+                    a.in_baseline = True
+                else:
+                    a.metadata["drift"] = True
+                    a.risk_reasons.append("New service not in the known-good baseline (drift).")
+                    # A new, risky, or externally-reachable service warrants attention.
+                    if a.risky or a.exposure.value in ("lan", "public"):
+                        from ..schemas import Severity
+                        if a.severity.rank < Severity.MEDIUM.rank:
+                            a.severity = Severity.MEDIUM
 
         # Enrich dev-server labels from the port-manager knowledge base.
         for a in assets:

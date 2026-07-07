@@ -17,8 +17,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+import json
+
+from ..knowledge.owasp import owasp_nhi_for
 from ..safety.masking import fingerprint_secret, iter_secret_matches, mask_secret
 from ..schemas import (
     BastionIdentity,
@@ -190,13 +193,19 @@ class NhiAdapter(BaseAdapter):
 
             rel = str(path.relative_to(root))
 
-            # 1) Filename-based non-human identity surfaces.
-            for fname, label, itype in _FILENAME_SIGNALS:
-                if path.name == fname:
-                    identities.append(self._make_identity(
-                        name=label, provider=None, itype=itype, secret_value=None,
-                        rel=rel, line=None, root=root, detector="filename",
-                    ))
+            # 1) Structured config surfaces (MCP servers, k8s Secrets) — parsed
+            #    for real content rather than just flagged by filename.
+            structured = self._parse_structured_config(path, text, rel, root)
+            if structured:
+                identities.extend(structured)
+            else:
+                # Filename-based non-human identity surfaces (fallback).
+                for fname, label, itype in _FILENAME_SIGNALS:
+                    if path.name == fname:
+                        identities.append(self._make_identity(
+                            name=label, provider=None, itype=itype, secret_value=None,
+                            rel=rel, line=None, root=root, detector="filename",
+                        ))
 
             # 2) .env-style KEY=VALUE assignments.
             if path.name.startswith(".env") or path.suffix.lower() in {".env", ".ini", ".cfg", ".conf", ".properties"}:
@@ -284,11 +293,105 @@ class NhiAdapter(BaseAdapter):
             privileged=privileged,
             reachable_services=reachable,
             permission_chain=chain,
+            owasp_refs=owasp_nhi_for(itype.value, privileged=privileged, in_source=bool(secret_value)),
             is_active_unknown=True,  # we never test liveness
             recommended_action=action,
             false_positive_notes="Placeholder/example values are suppressed; verify the value is a live credential before acting.",
         )
         return ident
+
+    # --- structured config parsing ------------------------------------------
+    def _parse_structured_config(self, path: Path, text: str, rel: str, root: Path
+                                 ) -> List[BastionIdentity]:
+        """Extract structured non-human identities from known config formats.
+
+        Currently: MCP server configs (each server + its tool surface) and
+        Kubernetes ``Secret`` manifests (each data key). Malformed content is
+        skipped, never raised.
+        """
+        out: List[BastionIdentity] = []
+        name = path.name.lower()
+
+        # MCP server configuration -> one identity per declared server.
+        if name in {".mcp.json", "mcp.json", "mcp_config.json", "cursor_mcp.json"}:
+            try:
+                doc = json.loads(text)
+            except (json.JSONDecodeError, ValueError):
+                return out
+            servers = doc.get("mcpServers") or doc.get("servers") or {}
+            if isinstance(servers, dict):
+                for srv_name, cfg in servers.items():
+                    cfg = cfg if isinstance(cfg, dict) else {}
+                    command = " ".join([str(cfg.get("command", ""))] + [str(a) for a in cfg.get("args", [])]).strip()
+                    ident = self._make_identity(
+                        name=f"MCP server '{srv_name}'", provider=None,
+                        itype=IdentityType.MCP_SERVER, secret_value=None,
+                        rel=rel, line=None, root=root, detector="mcp-config",
+                    )
+                    ident.reachable_services = ["MCP tool surface"] + (
+                        ["environment secrets"] if cfg.get("env") else [])
+                    ident.permission_chain = ["MCP server", srv_name, "agent tools"]
+                    ident.operator_notes = (f"Launches: {command[:120]}" if command else "")
+                    ident.metadata["mcp_env_keys"] = sorted((cfg.get("env") or {}).keys())
+                    out.append(ident)
+
+        # Kubernetes Secret manifest -> one identity per data key.
+        elif path.suffix.lower() in {".yaml", ".yml"} and "kind: Secret" in text:
+            for lineno, line in enumerate(text.splitlines(), 1):
+                m = re.match(r"\s{2,}([A-Za-z0-9._-]+):\s*(\S+)", line)
+                if not m:
+                    continue
+                key, value = m.group(1), m.group(2).strip().strip("'\"")
+                # k8s stores secrets base64 under data:; treat the key as an identity.
+                if key in {"apiVersion", "kind", "metadata", "type", "name", "namespace"}:
+                    continue
+                if len(value) < 8 or _is_placeholder(value):
+                    continue
+                out.append(self._make_identity(
+                    name=f"Kubernetes Secret key '{key}'", provider="kubernetes",
+                    itype=IdentityType.SERVICE_ACCOUNT, secret_value=value,
+                    rel=rel, line=lineno, root=root, detector="k8s-secret",
+                ))
+                if len(out) >= 50:
+                    break
+        return out
+
+    # --- cross-identity risk paths ------------------------------------------
+    def derive_risk_paths(self, identities: List[BastionIdentity]) -> List[Dict[str, Any]]:
+        """Build blast-radius risk paths across all discovered identities.
+
+        Surfaces the highest-impact escalation chains: which discovered
+        credentials, if live, chain to privileged sinks (cloud control plane,
+        production deploy, internal services). Deterministic; no live checks.
+        """
+        _PRIVILEGED_SINKS = {
+            IdentityType.CLOUD_WORKLOAD: "Cloud control plane / all cloud resources",
+            IdentityType.CI_CD_TOKEN: "Production deployment pipeline",
+            IdentityType.SERVICE_ACCOUNT: "Internal services & databases",
+            IdentityType.DEPLOYMENT_IDENTITY: "Production deploy targets",
+            IdentityType.SSH_KEY: "Remote host shell access",
+        }
+        paths: List[Dict[str, Any]] = []
+        for i in identities:
+            sink = _PRIVILEGED_SINKS.get(i.identity_type)
+            if not sink:
+                continue
+            paths.append({
+                "identity_id": i.identity_id,
+                "start": f"{i.name} @ {i.location}",
+                "chain": i.permission_chain or [i.identity_type.value],
+                "sink": sink,
+                "severity": ("critical" if i.privileged else i.severity.value),
+                "reachable": i.reachable_services,
+                "why": (
+                    f"If live, this {i.identity_type.value.replace('_', ' ')} reaches "
+                    f"{sink.lower()} — a high-value escalation path."
+                ),
+            })
+        # Highest-impact first.
+        order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        paths.sort(key=lambda p: order.get(p["severity"], 5))
+        return paths
 
     @staticmethod
     def _blast_radius(

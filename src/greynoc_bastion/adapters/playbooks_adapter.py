@@ -96,9 +96,10 @@ class PlaybooksAdapter(BaseAdapter):
 
         h2 = _H2_RE.findall(text)
         h1 = _H1_RE.findall(text)
-        # The playbook's real name is the first H2 ("## X Detection & Response");
-        # fall back to H1 or the slug.
-        name = (h2[0].strip() if h2 else (h1[0].strip() if h1 else slug))
+        # Detection playbooks title in H2 ("## X Detection & Response"); crypto
+        # playbooks title in H1 ("# 09 — Post-Quantum ..."). Pick a title-like
+        # H2, else a meaningful H1, else derive from the slug.
+        name = self._pick_name(h1, h2, slug)
         name = re.sub(r"\s*[-—]\s*$", "", name)
 
         category = _categorize(slug, name)
@@ -134,6 +135,42 @@ class PlaybooksAdapter(BaseAdapter):
             source_path=str(path),
             body_markdown=text,
         )
+
+    # Section headings that are never a playbook title.
+    _GENERIC_HEADINGS = {
+        "overview", "mitre att&ck mapping", "mitre attack mapping", "mitre mapping",
+        "detection strategy", "detection", "key indicators", "indicators",
+        "sample detection logic", "sample logic", "response", "containment",
+        "remediation", "references", "analyst notes", "investigation steps",
+        "summary", "scope", "background", "introduction", "table of contents",
+        "example data", "greynoc security playbook",
+    }
+
+    @classmethod
+    def _pick_name(cls, h1_list: List[str], h2_list: List[str], slug: str) -> str:
+        def generic(text: str) -> bool:
+            clean = re.sub(r"^\d+\.\s*", "", text.strip()).strip().lower().rstrip(":")
+            # Generic if it exactly matches, or starts with, a known section name.
+            return (clean in cls._GENERIC_HEADINGS
+                    or any(clean.startswith(g) for g in cls._GENERIC_HEADINGS)
+                    or len(clean) <= 3)
+
+        # Detection-series titles are the H2 "X Detection & Response" — they
+        # contain BOTH "detection" and "response" (distinguishes the title from
+        # a plain "Response actions" section).
+        for h in h2_list:
+            if re.search(r"detection", h, re.IGNORECASE) and re.search(r"response", h, re.IGNORECASE):
+                return re.sub(r"^\d+\.\s*", "", h.strip())
+        # Crypto-series titles are the H1 (strip a leading "NN — " ordinal prefix).
+        for h in h1_list:
+            if not generic(h):
+                return re.sub(r"^\d+\s*[-—:]\s*", "", h.strip())
+        # Any non-generic H2, then slug-derived title.
+        for h in h2_list:
+            if not generic(h):
+                return re.sub(r"^\d+\.\s*", "", h.strip())
+        stem = re.sub(r"^\d+[-_]", "", slug).replace("-", " ").replace("_", " ")
+        return stem.title() if stem else slug
 
     @staticmethod
     def _extract_summary(text: str) -> str:

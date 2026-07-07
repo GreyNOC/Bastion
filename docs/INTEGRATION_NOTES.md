@@ -137,6 +137,40 @@ and fixed the following, all now covered by regression tests:
   malformed archives instead of raising; `BASTION_HOME` is resolved to an
   absolute path; the Flask session key is per-process, not a committed constant.
 
+## Full-capacity engine upgrade
+
+After the MVP + QA/QC, the engines were brought to full capacity (grounded in the
+upstream repos' real logic via a per-engine design pass). Added:
+
+- **Shared knowledge bases** (`knowledge/`): a curated ATT&CK enterprise catalog
+  (14 tactics, 63 techniques) with keyword inference, an AI-abuse taxonomy (OWASP
+  LLM/Agentic aligned), post-quantum primitives + HNDL + Mosca-margin, and the
+  OWASP NHI Top 10 map. These are the shared join vocabulary the correlation spine
+  uses.
+- **Threat Forecast**: a real exploit-**timing** forecast (probability + horizon
+  p50/p90 + confidence + window: already-exploited / imminent / near-term / …),
+  ATT&CK technique inference from CVE text, AI-abuse classification, post-quantum
+  (HNDL) assessment, and STIX 2.1 + ATT&CK Navigator layer export.
+- **Identity Blast Radius**: structural parsing of MCP server configs and
+  Kubernetes Secret manifests, OWASP NHI Top 10 references on every identity, and a
+  cross-identity **risk-path** graph (escalation chains to privileged sinks).
+- **Detection Validation**: a rule **linter** (structure, MITRE-id validity,
+  operator validity, ReDoS gate), an ATT&CK **coverage map** with tactic gaps, and
+  host-level **incident correlation** with dwell time (chains multi-stage activity
+  into one incident).
+- **Assets & Exposure**: a known-good **baseline** + **drift** detection with a
+  stable service signature.
+- **Correlation spine** (`services/correlation.py`): the cross-engine layer that
+  makes Bastion one console. It links threats ↔ detections ↔ playbooks ↔ assets by
+  ATT&CK technique and host, and surfaces the highest-value operator insight —
+  **forecasted techniques with no validated detection coverage** (a "coverage
+  gap") and which playbook applies.
+
+All additions are deterministic, offline, defensive-only, and keep the masked-secret
+guarantee (verified by test that no secret reaches any report/export). Borderline or
+offensive upstream capabilities flagged by the design pass were dropped (e.g. live
+PowerShell owner-enrichment, git-history secret pull) or gated.
+
 ## Highest-value, lowest-risk imports (as identified by the audit)
 
 1. Detector-Engine scoring/forecast concepts + feed fixtures → Threat Forecast.

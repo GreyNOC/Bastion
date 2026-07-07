@@ -253,6 +253,70 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_correlate(args) -> int:
+    app = _app(args)
+    result = app.correlate()
+    if args.json:
+        _print_json(result)
+        return 0
+    print("Correlation — cross-engine view\n")
+    print(result["summary"])
+    print()
+    for c in result["clusters"][:20]:
+        gap = " [COVERAGE GAP]" if c["coverage_gap"] else ""
+        print(f"{_sev_marker(c['severity'])} {c['label']}{gap}")
+        print(f"        {c['narrative']}")
+    return 0
+
+
+def cmd_coverage(args) -> int:
+    app = _app(args)
+    cov = app.detection_coverage()
+    if args.json:
+        _print_json(cov)
+        return 0
+    print(f"Detection Coverage — {cov['tactics_covered']}/{cov['tactics_total']} ATT&CK tactics, "
+          f"{cov['techniques_covered']} techniques\n")
+    for row in cov["by_tactic"]:
+        mark = "  ok  " if row["covered"] else " GAP  "
+        print(f"[{mark}] {row['tactic_id']} {row['tactic']:26} techniques: {row['technique_count']}")
+    if cov["gaps"]:
+        print("\nTactic gaps (no rule coverage): " + ", ".join(cov["gaps"]))
+    return 0
+
+
+def cmd_lint(args) -> int:
+    app = _app(args)
+    lint = app.lint_detections()
+    if args.json:
+        _print_json(lint)
+        return 0 if lint["clean"] else 1
+    if lint["clean"]:
+        print("Detection lint: all rules clean.")
+        return 0
+    print(f"Detection lint: {lint['errors']} error(s), {lint['warnings']} warning(s)\n")
+    for rid, issues in lint["by_rule"].items():
+        for i in issues:
+            print(f"  [{i['severity']:7}] {rid:16} {i['code']}: {i['message']}")
+    return 0 if lint["errors"] == 0 else 1
+
+
+def cmd_forecast_export(args) -> int:
+    app = _app(args)
+    fmt = args.format
+    try:
+        content = app.export_threat_intel(fmt)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.out:
+        Path(args.out).write_text(content, encoding="utf-8")
+        print(f"Wrote {fmt} export to {args.out}")
+    else:
+        print(content)
+    return 0
+
+
 def cmd_serve(args) -> int:
     app = _app(args)
     from .web.server import serve
@@ -323,6 +387,10 @@ def build_parser() -> argparse.ArgumentParser:
     fi.add_argument("--sectors", help="comma-separated sector relevance hints")
     fi.add_argument("--pretty", action="store_true")
     fi.set_defaults(func=cmd_forecast, persist=True)
+    fx = fsub.add_parser("export", parents=[common], help="export stored threats as STIX 2.1 or ATT&CK Navigator")
+    fx.add_argument("--format", choices=["stix", "navigator"], required=True)
+    fx.add_argument("--out", help="write to this file (default: stdout)")
+    fx.set_defaults(func=cmd_forecast_export)
 
     ip = sub.add_parser("identities", help="identity blast radius scan")
     isub = ip.add_subparsers(dest="identities_cmd", required=True)
@@ -338,6 +406,10 @@ def build_parser() -> argparse.ArgumentParser:
     dev.add_argument("--all", action="store_true", help="validate the whole rule pack")
     dev.add_argument("--pretty", action="store_true")
     dev.set_defaults(func=cmd_detections)
+    dco = desub.add_parser("coverage", parents=[common], help="ATT&CK coverage map + tactic gaps")
+    dco.set_defaults(func=cmd_coverage)
+    dln = desub.add_parser("lint", parents=[common], help="static-lint the detection rule pack")
+    dln.set_defaults(func=cmd_lint)
 
     pp = sub.add_parser("playbooks", help="operator playbooks")
     psub = pp.add_subparsers(dest="playbooks_cmd", required=True)
@@ -360,6 +432,10 @@ def build_parser() -> argparse.ArgumentParser:
     rb.add_argument("--formats", help="comma-separated: html,markdown,json,csv,sarif,pdf")
     rb.add_argument("--no-bundle", action="store_true", help="skip the evidence bundle")
     rb.set_defaults(func=cmd_report)
+
+    cor = sub.add_parser("correlate", parents=[common],
+                         help="cross-engine correlation view + coverage gaps")
+    cor.set_defaults(func=cmd_correlate)
 
     svp = sub.add_parser("serve", help="serve the local dashboard (127.0.0.1)")
     svp.add_argument("--host", default=None, help="bind host (default 127.0.0.1)")
