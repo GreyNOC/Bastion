@@ -60,6 +60,19 @@ where each rule is enforced.
 | Live fetch routes every request + redirect through the guard | `safety/fetcher.py` | `test_live_fetch_and_rules.py` |
 | Custom rules are ReDoS-screened + linted before load; stay drafts | `adapters/dmz_adapter.py` `load_custom_rules` | `test_live_fetch_and_rules.py` |
 | Offensive playbooks excluded | `adapters/playbooks_adapter.py` | `test_adapters.py` |
+| Passwords stored only as salted PBKDF2 hashes; verification constant-time and timing-equalized | `auth.py` | `test_auth_rbac.py` |
+| First operator account switches the dashboard to login-required; RBAC on every POST | `web/server.py` | `test_auth_rbac.py` |
+| Login attempts throttled and audited; role changes effective immediately | `web/server.py`, `auth.py` | `test_auth_rbac.py` |
+| Last enabled admin cannot be disabled/demoted/deleted | `auth.py` | `test_auth_rbac.py` |
+| Case titles/notes scrubbed of secrets before storage | `services/case_management.py` | `test_cases.py` |
+| Telemetry replay reads local files only, size- and event-capped | `services/telemetry_ingest.py` | `test_telemetry_and_notify.py` |
+| Notifications OFF by default; webhook sink egress-guarded (HTTPS, allowlist, SSRF, no redirects) | `services/notifications.py`, `safety/fetcher.py` | `test_telemetry_and_notify.py` |
+| Schedules never self-execute; `run-due` is the only runner | `services/scheduler.py` | `test_scheduler_orchestrator.py` |
+| Web-operator schedule delivery confined to the Bastion home tree | `services/scheduler.py`, `web/server.py` | `test_scheduler_orchestrator.py` |
+| Evidence signing key 0600, never logged; signature verification constant-time | `services/evidence_center.py` | `test_evidence_signing.py` |
+| Evidence signature covers the attested metadata, not just the bundle digest | `services/evidence_center.py` | `test_evidence_signing.py` |
+| Post-login redirect confined to in-app paths (no open redirect via `next`) | `web/server.py` `_safe_next` | `test_auth_rbac.py` |
+| Token-bootstrapped sessions bound to the current token (rotation revokes) | `web/server.py` `_request_authed` | `test_auth_rbac.py` |
 
 ## Live fetching (when you turn it on)
 

@@ -15,14 +15,17 @@ from .base import (
     stable_fingerprint,
     utcnow_iso,
 )
+from .case import BastionCase, CaseNote
 from .detection import BastionDetection, BastionValidationResult
 from .enums import (
     AssetKind,
+    CaseStatus,
     Confidence,
     EvidenceKind,
     Exposure,
     FindingCategory,
     IdentityType,
+    OperatorRole,
     ReportFormat,
     Severity,
     ThreatCategory,
@@ -43,17 +46,21 @@ __all__ = [
     "utcnow_iso",
     # enums
     "AssetKind",
+    "CaseStatus",
     "Confidence",
     "EvidenceKind",
     "Exposure",
     "FindingCategory",
     "IdentityType",
+    "OperatorRole",
     "ReportFormat",
     "Severity",
     "ThreatCategory",
     "ValidationStatus",
     # models
     "BastionAsset",
+    "BastionCase",
+    "CaseNote",
     "BastionDetection",
     "BastionEvidence",
     "BastionFinding",

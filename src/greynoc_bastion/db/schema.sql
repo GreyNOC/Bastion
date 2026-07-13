@@ -125,3 +125,44 @@ CREATE TABLE IF NOT EXISTS meta (
     key           TEXT PRIMARY KEY,
     value         TEXT
 );
+
+-- Case management: assigned/tracked/closed response work built from findings.
+CREATE TABLE IF NOT EXISTS cases (
+    case_id       TEXT PRIMARY KEY,
+    title         TEXT,
+    status        TEXT,
+    severity      TEXT,
+    assignee      TEXT,
+    created_at    TEXT,
+    updated_at    TEXT,
+    data          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
+CREATE INDEX IF NOT EXISTS idx_cases_assignee ON cases(assignee);
+
+-- Operator accounts for multi-operator auth + RBAC. Only a salted, iterated
+-- one-way hash of the password is ever stored (PBKDF2-HMAC-SHA256).
+CREATE TABLE IF NOT EXISTS operators (
+    username      TEXT PRIMARY KEY,
+    role          TEXT NOT NULL,
+    pw_hash       TEXT NOT NULL,
+    pw_salt       TEXT NOT NULL,
+    pw_iterations INTEGER NOT NULL,
+    disabled      INTEGER DEFAULT 0,
+    created_at    TEXT,
+    updated_at    TEXT
+);
+
+-- Report / workflow schedules (local runner; nothing fires on its own —
+-- `bastion schedule run-due` executes what is due).
+CREATE TABLE IF NOT EXISTS schedules (
+    schedule_id   TEXT PRIMARY KEY,
+    name          TEXT,
+    kind          TEXT,
+    interval_hours REAL,
+    next_run_at   TEXT,
+    last_run_at   TEXT,
+    enabled       INTEGER DEFAULT 1,
+    data          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_schedules_next ON schedules(next_run_at);

@@ -21,6 +21,7 @@ from typing import Any
 
 from ..schemas import (
     BastionAsset,
+    BastionCase,
     BastionDetection,
     BastionEvidence,
     BastionFinding,
@@ -246,6 +247,114 @@ class Database:
                 (e.evidence_id, e.kind.value, e.source, e.collected_at, self._dumps(e)),
             )
 
+    # --- cases ---------------------------------------------------------------
+    def save_case(self, c: BastionCase) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO cases "
+                "(case_id, title, status, severity, assignee, created_at, updated_at, data) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (c.case_id, c.title, c.status.value, c.severity.value, c.assignee,
+                 c.created_at, c.updated_at, self._dumps(c)),
+            )
+
+    def get_case(self, case_id: str) -> BastionCase | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT data FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+        return BastionCase.from_dict(json.loads(row["data"])) if row else None
+
+    def list_cases(self, *, status: str | None = None, assignee: str | None = None,
+                   limit: int = 500) -> list[BastionCase]:
+        query = "SELECT data FROM cases"
+        clauses: list[str] = []
+        params: list[Any] = []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if assignee is not None:
+            clauses.append("assignee = ?")
+            params.append(assignee)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [BastionCase.from_dict(json.loads(r["data"])) for r in rows]
+
+    # --- operators (auth + RBAC) ----------------------------------------------
+    def save_operator(self, record: dict[str, Any]) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO operators "
+                "(username, role, pw_hash, pw_salt, pw_iterations, disabled, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (record["username"], record["role"], record["pw_hash"], record["pw_salt"],
+                 int(record["pw_iterations"]), int(bool(record.get("disabled", False))),
+                 record.get("created_at") or utcnow_iso(), utcnow_iso()),
+            )
+
+    def get_operator(self, username: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM operators WHERE username = ?", (username,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_operators(self) -> list[dict[str, Any]]:
+        """All operator accounts WITHOUT password material (safe to display)."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT username, role, disabled, created_at, updated_at "
+                "FROM operators ORDER BY username"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def count_operators(self, *, include_disabled: bool = True) -> int:
+        with self.connect() as conn:
+            if include_disabled:
+                row = conn.execute("SELECT COUNT(*) AS n FROM operators").fetchone()
+            else:
+                row = conn.execute("SELECT COUNT(*) AS n FROM operators WHERE disabled = 0").fetchone()
+        return int(row["n"])
+
+    def delete_operator(self, username: str) -> bool:
+        with self.connect() as conn:
+            cur = conn.execute("DELETE FROM operators WHERE username = ?", (username,))
+        return cur.rowcount > 0
+
+    # --- schedules -------------------------------------------------------------
+    def save_schedule(self, record: dict[str, Any]) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO schedules "
+                "(schedule_id, name, kind, interval_hours, next_run_at, last_run_at, enabled, data) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (record["schedule_id"], record.get("name", ""), record.get("kind", ""),
+                 float(record.get("interval_hours", 24.0)), record.get("next_run_at", ""),
+                 record.get("last_run_at", ""), int(bool(record.get("enabled", True))),
+                 json.dumps(record, ensure_ascii=False)),
+            )
+
+    def get_schedule(self, schedule_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT data FROM schedules WHERE schedule_id = ?", (schedule_id,)
+            ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def list_schedules(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT data FROM schedules ORDER BY next_run_at LIMIT ?", (limit,)
+            ).fetchall()
+        return [json.loads(r["data"]) for r in rows]
+
+    def delete_schedule(self, schedule_id: str) -> bool:
+        with self.connect() as conn:
+            cur = conn.execute("DELETE FROM schedules WHERE schedule_id = ?", (schedule_id,))
+        return cur.rowcount > 0
+
     # --- audit log -----------------------------------------------------------
     def audit(self, action: str, *, actor: str = "system", detail: str = "",
               correlation_id: str | None = None) -> None:
@@ -279,6 +388,7 @@ class Database:
         tables = [
             "threats", "identities", "detections", "validation_results",
             "playbooks", "assets", "findings", "reports", "evidence",
+            "cases", "schedules",
         ]
         out: dict[str, int] = {}
         with self.connect() as conn:

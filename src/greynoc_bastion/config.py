@@ -82,6 +82,15 @@ class BastionConfig:
     # Active local checks (Assets & Exposure)
     active_checks: bool = False
 
+    # Notification fabric (Phase 3). OFF by default. The file sink is local-only;
+    # the webhook sink additionally requires an HTTPS URL whose host is on the
+    # (separate) notify allowlist, and every dispatch goes through the same
+    # SSRF/TLS/pinning guard as live fetching.
+    notify_enabled: bool = False
+    notify_file: Path | None = None
+    notify_webhook_url: str = ""
+    notify_allowlist: list[str] = dataclasses.field(default_factory=list)
+
     # Optional directory of user-supplied detection rules (ReDoS-screened on load).
     rules_dir: Path | None = None
 
@@ -132,6 +141,10 @@ class BastionConfig:
             "fetch_cache_ttl_seconds": self.fetch_cache_ttl_seconds,
             "fetch_cache_dir": str(self.fetch_cache_dir),
             "active_checks": self.active_checks,
+            "notify_enabled": self.notify_enabled,
+            "notify_file": str(self.notify_file) if self.notify_file else "",
+            "notify_webhook_set": bool(self.notify_webhook_url),  # never expose the URL (may embed a token)
+            "notify_allowlist": list(self.notify_allowlist),
             "allow_remote_dashboard": self.allow_remote_dashboard,
             "dashboard_token_set": bool(self.dashboard_token),  # never expose the value
             "ai_assistant": self.ai_assistant,
@@ -176,6 +189,8 @@ def load_config(
         "BASTION_FETCH_MAX_BYTES", "BASTION_FETCH_TIMEOUT_SECONDS",
         "BASTION_FETCH_CACHE", "BASTION_FETCH_CACHE_TTL_SECONDS", "BASTION_FETCH_CACHE_DIR",
         "BASTION_ACTIVE_CHECKS", "BASTION_RULES_DIR",
+        "BASTION_NOTIFY", "BASTION_NOTIFY_FILE", "BASTION_NOTIFY_WEBHOOK_URL",
+        "BASTION_NOTIFY_ALLOWLIST",
         "BASTION_ALLOW_REMOTE_DASHBOARD",
         "BASTION_DASHBOARD_TOKEN", "BASTION_WEB_SECRET", "BASTION_AI_ASSISTANT",
         "BASTION_AI_COMMAND_EXECUTION", "BASTION_AI_ENDPOINT",
@@ -235,6 +250,12 @@ def load_config(
         fetch_cache_ttl_seconds=_int("BASTION_FETCH_CACHE_TTL_SECONDS", 3600),
         fetch_cache_dir=fetch_cache_dir,
         active_checks=_parse_bool(get("BASTION_ACTIVE_CHECKS"), False),
+        notify_enabled=_parse_bool(get("BASTION_NOTIFY"), False),
+        notify_file=(_resolve_path(home, get("BASTION_NOTIFY_FILE"), home / "notifications.jsonl")
+                     if _parse_bool(get("BASTION_NOTIFY"), False) or get("BASTION_NOTIFY_FILE")
+                     else None),
+        notify_webhook_url=get("BASTION_NOTIFY_WEBHOOK_URL", ""),
+        notify_allowlist=[h.strip() for h in get("BASTION_NOTIFY_ALLOWLIST").split(",") if h.strip()],
         rules_dir=(Path(get("BASTION_RULES_DIR")).expanduser() if get("BASTION_RULES_DIR") else None),
         allow_remote_dashboard=get("BASTION_ALLOW_REMOTE_DASHBOARD").strip() == "1",
         dashboard_token=get("BASTION_DASHBOARD_TOKEN", ""),
