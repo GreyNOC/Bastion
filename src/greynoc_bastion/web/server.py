@@ -52,6 +52,10 @@ _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 # within the window, further attempts are refused for the window's remainder.
 _THROTTLE_MAX_FAILURES = 5
 _THROTTLE_WINDOW_SECONDS = 15 * 60
+# Hard cap on distinct tracked keys so an unauthenticated attacker spraying the
+# login form with many usernames/source IPs cannot grow the map without bound
+# (the login page is reachable pre-auth in multi-operator mode).
+_THROTTLE_MAX_KEYS = 4096
 
 
 def ensure_bind_allowed(host: str, *, allow_remote: bool = False, has_token: bool = False) -> None:
@@ -120,6 +124,12 @@ class _LoginThrottle:
 
     def record_failure(self, key: str) -> None:
         now = time.monotonic()
+        # Bound the map: if we're at the cap and this is a new key, drop the
+        # keys whose most-recent failure is oldest to make room. Under an
+        # attack the churn only costs the attacker their own throttle history.
+        if key not in self._failures and len(self._failures) >= _THROTTLE_MAX_KEYS:
+            for stale in sorted(self._failures, key=lambda k: self._failures[k][-1])[:64]:
+                self._failures.pop(stale, None)
         self._prune(key, now)
         self._failures.setdefault(key, []).append(now)
 
@@ -205,8 +215,15 @@ def create_app(bastion: BastionApp) -> Flask:
         # Health check and static assets stay open (monitoring; no data).
         if request.endpoint in ("healthz", "static"):
             return None
-        # 1) Token auth (only enforced when a token is configured).
-        if dashboard_token and not _request_authed(request, dashboard_token):
+        # 1) Token auth. When a token is configured but NO operator accounts
+        #    exist, the token is the sole authenticator (the machine channel)
+        #    and is required on every request. Once accounts exist, the login
+        #    gate (step 3) governs and the token becomes an alternative
+        #    operator-level channel (bearer header / ?token=). We must NOT
+        #    hard-401 here in that combined mode, or the login page itself
+        #    becomes unreachable and remote multi-operator login is impossible.
+        if (dashboard_token and not _login_required()
+                and not _request_authed(request, dashboard_token)):
             return Response("unauthorized: provide Authorization: Bearer <token>\n", 401)
         # 2) CSRF on state-changing requests. Bearer-authenticated API clients
         #    are exempt (the header is never auto-sent cross-site).
@@ -225,8 +242,11 @@ def create_app(bastion: BastionApp) -> Flask:
             return Response("login required\n", 401)
         # 4) RBAC floor for state-changing requests: account management is
         #    admin-only; every other POST action needs operator. Reads are
-        #    viewer-level and enforced per-route where needed.
-        if request.method == "POST":
+        #    viewer-level and enforced per-route where needed. Logout is exempt
+        #    from the operator floor — any authenticated session (viewer
+        #    included) must always be able to end itself; step 3 already proved
+        #    the request is authenticated.
+        if request.method == "POST" and request.endpoint != "logout":
             needed = OperatorRole.ADMIN if request.path.startswith("/users") else OperatorRole.OPERATOR
             current = _effective_role()
             if current is None or not current.allows(needed):

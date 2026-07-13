@@ -194,6 +194,9 @@ class EvidenceCenter:
             os.write(fd, (key_hex + "\n").encode("ascii"))
         finally:
             os.close(fd)
+        # O_CREAT does not tighten an EXISTING file's mode (a rotation with
+        # --force over a previously loose key), so enforce 0600 explicitly.
+        os.chmod(key_path, 0o600)
         return str(key_path)
 
     @staticmethod

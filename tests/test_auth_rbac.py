@@ -184,6 +184,31 @@ def test_viewer_cannot_post_operator_can(app):
                                             "password": PW}).status_code == 403
 
 
+def test_viewer_can_always_log_out(app):
+    # Regression: the RBAC floor must not trap a viewer in-session. Logout is a
+    # POST but any authenticated role must be able to end its own session.
+    app.operators.add("admin1", PW, "admin")
+    app.operators.add("viewer1", PW, "viewer")
+    client = create_app(app).test_client()
+    _login(client, "viewer1", PW)
+    assert client.get("/").status_code == 200
+    with client.session_transaction() as sess:
+        csrf = sess["_csrf"]
+    assert client.post("/logout", data={"csrf_token": csrf}).status_code == 302
+    assert client.get("/").status_code == 302            # session ended -> back to login
+
+
+def test_login_throttle_map_is_bounded(app):
+    # Regression: an unauthenticated sprayer must not grow the throttle map
+    # without bound. Feed far more distinct keys than the cap and assert the
+    # map stays bounded.
+    from greynoc_bastion.web.server import _THROTTLE_MAX_KEYS, _LoginThrottle
+    throttle = _LoginThrottle()
+    for i in range(_THROTTLE_MAX_KEYS + 500):
+        throttle.record_failure(f"10.0.0.{i}|user{i}")
+    assert len(throttle._failures) <= _THROTTLE_MAX_KEYS
+
+
 def test_admin_manages_users_via_web(app):
     app.operators.add("admin1", PW, "admin")
     client = create_app(app).test_client()
@@ -226,6 +251,34 @@ def test_static_token_still_works_but_is_not_admin(app):
     # …but never account management.
     assert client.post("/users/add", headers=headers,
                        data={"username": "x", "password": PW}).status_code == 403
+
+
+def test_combined_token_and_accounts_allows_remote_login(app):
+    # Regression: with BOTH a dashboard token AND operator accounts (the remote
+    # multi-operator scenario — remote bind requires a token), form login must
+    # still work. The token gate must not hard-401 the login page or a
+    # logged-in session that lacks the token.
+    app.operators.add("alice", PW, "admin")
+    app.config.dashboard_token = "tkn-abc"
+    client = create_app(app).test_client()
+    assert client.get("/login").status_code == 200            # login page reachable
+    r = _login(client, "alice", PW)
+    assert r.status_code == 302
+    assert client.get("/").status_code == 200                 # logged-in session works w/o token
+    # An anonymous client is still bounced to login (not served, not hard-401).
+    anon = create_app(app).test_client()
+    r = anon.get("/")
+    assert r.status_code == 302 and "/login" in r.headers["Location"]
+    # The bearer token remains a valid machine channel.
+    assert anon.get("/", headers={"Authorization": "Bearer tkn-abc"}).status_code == 200
+
+
+def test_pure_token_mode_still_requires_token(app):
+    # With a token but NO accounts, the token remains mandatory on every request.
+    app.config.dashboard_token = "tkn-abc"
+    client = create_app(app).test_client()
+    assert client.get("/").status_code == 401
+    assert client.get("/", headers={"Authorization": "Bearer tkn-abc"}).status_code == 200
 
 
 def test_login_open_redirect_refused(app):
