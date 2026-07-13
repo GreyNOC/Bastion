@@ -24,6 +24,7 @@ from __future__ import annotations
 import dataclasses
 import http.client
 import ipaddress
+import json
 import socket
 import ssl
 import time
@@ -174,6 +175,47 @@ class SafeFetcher:
                                    body=body, truncated=truncated, hops=hops)
             finally:
                 conn.close()
+
+    def post_json(self, url: str, payload: dict, *, audit=None) -> FetchResult:
+        """POST a JSON document under the same guards as :meth:`fetch`.
+
+        Used only by the opt-in notification fabric. Differences from GET:
+        redirects are **refused** outright (a redirected POST would re-send the
+        body to an unvetted target), and the response read is capped small — we
+        only care about the status code, never the body.
+        """
+        decision = self.evaluate(url).raise_if_blocked()
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        port = parsed.port or 443
+        pinned_ip = self._pin_public_ip(host)
+        if audit:
+            audit("notify_webhook", f"POST {decision.host} -> {pinned_ip} (allowlisted, https, pinned)")
+        self.log.info("notification webhook: POST %s (pinned %s)", host, pinned_ip)
+
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        conn = _PinnedHTTPSConnection(host, pinned_ip, port, timeout=self.timeout_seconds)
+        try:
+            conn.request("POST", path, body=body, headers={
+                "Host": host,
+                "User-Agent": _USER_AGENT,
+                "Content-Type": "application/json",
+                "Accept": "*/*",
+                "Accept-Encoding": "identity",
+                "Connection": "close",
+            })
+            resp = conn.getresponse()
+            status = int(resp.status)
+            if status in _REDIRECT_CODES:
+                raise NetGuardError("webhook redirect refused (a POST is never re-sent)")
+            resp_body, truncated = _read_capped(resp, 64 * 1024, self.timeout_seconds)
+            return FetchResult(url=url, final_url=url, status=status,
+                               body=resp_body, truncated=truncated, hops=0)
+        finally:
+            conn.close()
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):

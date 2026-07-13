@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import PlaybooksAdapter
+from .auth import OperatorStore
 from .config import BastionConfig, load_config
 from .db import Database
 from .safety.status import SafetyStatus, build_safety_status
@@ -24,10 +25,15 @@ from .schemas import (
 from .services import (
     AIAssistantService,
     AssetExposureService,
+    CaseManagementService,
     DetectionValidationService,
     EvidenceCenter,
     IdentityBlastRadiusService,
+    NotificationFabric,
+    OrchestratorService,
     ReportCenter,
+    SchedulerService,
+    TelemetryIngestService,
     ThreatForecastService,
 )
 from .services.correlation import CorrelationService
@@ -55,6 +61,15 @@ class BastionApp:
         self.evidence_center = EvidenceCenter()
         self.ai = AIAssistantService(self.config, self.db)
         self.correlation = CorrelationService(self.db)
+
+        # Phase 2/3 services: cases, auth, telemetry replay, notifications,
+        # workflows, schedules.
+        self.cases = CaseManagementService(self.db)
+        self.operators = OperatorStore(self.db)
+        self.telemetry = TelemetryIngestService(self.db, self.detection.dmz)
+        self.notifications = NotificationFabric(self.config, self.db)
+        self.orchestrator = OrchestratorService(self)
+        self.scheduler = SchedulerService(self)
 
     # --- status / health -----------------------------------------------------
     def safety_status(self) -> SafetyStatus:

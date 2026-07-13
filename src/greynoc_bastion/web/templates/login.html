@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — GreyNOC Bastion</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='bastion.css') }}">
+</head>
+<body>
+<div class="layout" style="justify-content:center;align-items:center;min-height:100vh">
+  <main style="max-width:380px;width:100%;padding:24px">
+    <div class="brand" style="margin-bottom:18px">
+      <div class="logo">GreyNOC <b>Bastion</b></div>
+      <div class="tag">Defensive command post — operator sign-in</div>
+    </div>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for m in messages %}<div class="banner crit">{{ m }}</div>{% endfor %}
+      {% endif %}
+    {% endwith %}
+    <div class="panel">
+      <form method="post" action="{{ url_for('login_post') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next" value="{{ next }}">
+        <label class="small muted" for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" autofocus
+               style="width:100%;margin:4px 0 12px 0">
+        <label class="small muted" for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password"
+               style="width:100%;margin:4px 0 16px 0">
+        <button class="btn" style="width:100%">Sign in</button>
+      </form>
+      <p class="small muted" style="margin-top:12px">
+        Accounts are managed by an admin (<code>bastion users add</code>).
+        Failed attempts are throttled and audited.
+      </p>
+    </div>
+  </main>
+</div>
+</body>
+</html>
