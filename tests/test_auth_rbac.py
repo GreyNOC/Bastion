@@ -284,18 +284,54 @@ def test_pure_token_mode_still_requires_token(app):
 def test_login_open_redirect_refused(app):
     app.operators.add("alice", PW, "admin")
     client = create_app(app).test_client()
+    # Absolute URL, protocol-relative //host, and the backslash bypass /\host
+    # (browsers fold \ to /) must all be refused; a plain in-app path is kept.
+    for bad in ("https://evil.example", "//evil.example", "/\\evil.example",
+                "/\\/evil.example", "https:evil.example"):
+        client.get("/login")
+        with client.session_transaction() as sess:
+            csrf = sess["_csrf"]
+        r = client.post("/login", data={"username": "alice", "password": PW,
+                                        "csrf_token": csrf, "next": bad})
+        assert r.status_code == 302
+        assert "evil.example" not in r.headers["Location"], bad
+        client.post("/logout", data={"csrf_token": csrf})
+    # A legitimate in-app next is honored.
     client.get("/login")
     with client.session_transaction() as sess:
         csrf = sess["_csrf"]
     r = client.post("/login", data={"username": "alice", "password": PW,
-                                    "csrf_token": csrf, "next": "https://evil.example"})
-    assert r.status_code == 302
-    assert "evil.example" not in r.headers["Location"]
-    # And protocol-relative //host is refused too.
-    client.post("/logout", data={"csrf_token": csrf})
-    client.get("/login")
+                                    "csrf_token": csrf, "next": "/cases"})
+    assert r.headers["Location"].endswith("/cases")
+
+
+def test_token_bootstrap_is_bound_to_current_token(app):
+    # Regression: a ?token= bootstrap stores a fingerprint of the CURRENT token,
+    # not a bare "authed" flag, so a session bootstrapped from an OLD token is
+    # revoked the moment the token is rotated (even with a persistent cookie).
+    from greynoc_bastion.web.server import _token_fingerprint
+
+    app.config.dashboard_token = "tkn-new"
+    client = create_app(app).test_client()
+    # A session carrying the fingerprint of the CURRENT token authenticates.
     with client.session_transaction() as sess:
-        csrf = sess["_csrf"]
-    r = client.post("/login", data={"username": "alice", "password": PW,
-                                    "csrf_token": csrf, "next": "//evil.example"})
-    assert "evil.example" not in r.headers["Location"]
+        sess["_token_fp"] = _token_fingerprint("tkn-new")
+    assert client.get("/").status_code == 200
+    # A session carrying a stale fingerprint (from a rotated-away token) does not.
+    with client.session_transaction() as sess:
+        sess["_token_fp"] = _token_fingerprint("tkn-old")
+    assert client.get("/").status_code == 401
+    # The bare legacy flag no longer grants anything.
+    with client.session_transaction() as sess:
+        sess.pop("_token_fp", None)
+        sess["_authed"] = True
+    assert client.get("/").status_code == 401
+
+
+def test_query_token_bootstrap_persists_within_token(app):
+    # A ?token= visit bootstraps a session that keeps working without re-supplying
+    # the token — as long as the token is unchanged.
+    app.config.dashboard_token = "tkn-abc"
+    client = create_app(app).test_client()
+    assert client.get("/?token=tkn-abc").status_code == 200
+    assert client.get("/").status_code == 200

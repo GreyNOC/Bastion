@@ -22,10 +22,12 @@ Safety posture of the dashboard:
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import secrets
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from flask import (
     Flask,
@@ -81,21 +83,48 @@ def ensure_bind_allowed(host: str, *, allow_remote: bool = False, has_token: boo
         )
 
 
+def _token_fingerprint(token: str) -> str:
+    """Non-reversible, current-token-bound marker stored in a bootstrapped session."""
+    return hashlib.sha256(b"bastion-dash-token:" + token.encode("utf-8")).hexdigest()
+
+
 def _request_authed(req, token: str) -> bool:
     """True if the request is authorized for the token-protected dashboard.
 
     Accepts an ``Authorization: Bearer`` header, a ``?token=`` query (which then
     bootstraps an authenticated session so subsequent navigation/POSTs work
-    without re-supplying the token), or a previously-established session.
+    without re-supplying the token), or a previously-established session. A
+    bootstrapped session is bound to a fingerprint of the CURRENT token, so
+    rotating ``BASTION_DASHBOARD_TOKEN`` immediately revokes sessions
+    bootstrapped from the old token (even when the session cookie is persistent
+    via ``BASTION_WEB_SECRET``).
     """
     header = req.headers.get("Authorization", "")
     if header.startswith("Bearer ") and hmac.compare_digest(header[7:], token):
         return True
     query = req.args.get("token", "")
     if query and hmac.compare_digest(query, token):
-        session["_authed"] = True  # bootstrap a session from the query token
+        session["_token_fp"] = _token_fingerprint(token)  # bootstrap, token-bound
         return True
-    return bool(session.get("_authed"))
+    fp = session.get("_token_fp")
+    return bool(fp and hmac.compare_digest(str(fp), _token_fingerprint(token)))
+
+
+def _safe_next(target: str | None) -> str:
+    """Resolve a post-login redirect target, refusing any off-site destination.
+
+    Rejects absolute URLs, protocol-relative ``//host`` and ``/\\host`` (browsers
+    fold ``\\`` to ``/``), and anything carrying a scheme or netloc. Falls back
+    to the overview page. Prevents an open redirect via the ``next`` parameter.
+    """
+    if not target:
+        return url_for("overview")
+    if "\\" in target or not target.startswith("/") or target.startswith("//"):
+        return url_for("overview")
+    parsed = urlparse(target)
+    if parsed.scheme or parsed.netloc:
+        return url_for("overview")
+    return target
 
 
 def _has_valid_bearer(req, token: str | None) -> bool:
@@ -302,17 +331,13 @@ def create_app(bastion: BastionApp) -> Flask:
         session["_user"] = username
         # Rotate the CSRF token on privilege change (login).
         session["_csrf"] = secrets.token_urlsafe(32)
-        target = request.form.get("next") or url_for("overview")
-        # Only ever redirect within this app (no open redirect).
-        if not str(target).startswith("/") or str(target).startswith("//"):
-            target = url_for("overview")
-        return redirect(target)
+        return redirect(_safe_next(request.form.get("next")))
 
     @app.post("/logout")
     def logout():
         actor = _actor()
         session.pop("_user", None)
-        session.pop("_authed", None)
+        session.pop("_token_fp", None)
         session["_csrf"] = secrets.token_urlsafe(32)
         bastion.db.audit("logout", actor=actor)
         return redirect(url_for("login") if _login_required() else url_for("overview"))
@@ -545,7 +570,10 @@ def create_app(bastion: BastionApp) -> Flask:
                 interval_hours=float(request.form.get("every") or 24.0),
                 workflow=request.form.get("workflow", ""),
                 deliver_to=request.form.get("deliver_to", ""),
-                actor=_actor())
+                actor=_actor(),
+                # A web operator must not deliver report files outside the
+                # Bastion home; the trusted local CLI has no such limit.
+                restrict_base=bastion.config.home)
             flash(f"Schedule {record['schedule_id']} added (run it via `bastion schedule run-due`).")
         except (ScheduleError, ValueError) as exc:
             flash(f"Schedule refused: {exc}")

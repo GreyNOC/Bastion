@@ -80,6 +80,23 @@ def test_tampered_entry_inside_zip_fails(app, bundle, key, tmp_path):
     assert not result["ok"]
 
 
+def test_tampered_sidecar_metadata_fails(app, bundle, key):
+    # Regression: the HMAC covers the attested metadata, not just the bundle
+    # digest, so altering signed_at (or the recorded bundle name) must break
+    # verification even though the bundle bytes are untouched.
+    info = app.evidence_center.sign_bundle(bundle, key_path=key)
+    sig_path = Path(info["signature_path"])
+    for field, value in (("signed_at", "1999-01-01T00:00:00Z"),
+                         ("bundle", "somewhere-else.zip"),
+                         ("schema_version", "9.9")):
+        sidecar = json.loads(sig_path.read_text(encoding="utf-8"))
+        sidecar[field] = value
+        sig_path.write_text(json.dumps(sidecar), encoding="utf-8")
+        result = app.evidence_center.verify_signature(bundle, key_path=key)
+        assert not result["ok"], field
+        assert any("signature mismatch" in p for p in result["problems"]), field
+
+
 def test_wrong_key_fails(app, bundle, key, tmp_path):
     app.evidence_center.sign_bundle(bundle, key_path=key)
     other = tmp_path / "other.key"

@@ -55,7 +55,15 @@ class SchedulerService:
 
     # --- definition -----------------------------------------------------------
     def add(self, name: str, *, kind: str = "report", interval_hours: float = 24.0,
-            workflow: str = "", deliver_to: str = "", actor: str = "operator") -> dict[str, Any]:
+            workflow: str = "", deliver_to: str = "", actor: str = "operator",
+            restrict_base: Path | None = None) -> dict[str, Any]:
+        """Create a schedule.
+
+        ``restrict_base`` confines the delivery directory to a subtree (used by
+        the web dashboard, where a merely-``operator`` role must not be able to
+        drop report files anywhere the service account can write). The trusted
+        local CLI passes no restriction.
+        """
         name = str(name or "").strip()[:120]
         if not name:
             raise ScheduleError("a schedule needs a name")
@@ -78,6 +86,13 @@ class SchedulerService:
             dest = Path(deliver_to).expanduser()
             if dest.exists() and not dest.is_dir():
                 raise ScheduleError(f"delivery destination is not a directory: {dest}")
+            if restrict_base is not None:
+                base = Path(restrict_base).expanduser().resolve()
+                resolved = dest.resolve()
+                if resolved != base and base not in resolved.parents:
+                    raise ScheduleError(
+                        f"delivery destination must be inside {base} "
+                        "(the dashboard confines delivery to the Bastion home)")
 
         record: dict[str, Any] = {
             "schedule_id": f"sched-{uuid.uuid4().hex[:12]}",

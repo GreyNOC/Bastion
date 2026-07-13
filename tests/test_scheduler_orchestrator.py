@@ -46,6 +46,29 @@ def test_run_due_builds_report_and_advances(app, tmp_path):
     assert app.scheduler.run_due() == []
 
 
+def test_delivery_restricted_to_base_for_web(app, tmp_path):
+    # Regression: a web operator must not deliver report files outside the
+    # Bastion home. The restrict_base guard (used by the dashboard route)
+    # rejects an out-of-tree destination but allows one inside it.
+    outside = tmp_path / "escape"
+    with pytest.raises(ScheduleError):
+        app.scheduler.add("evil", kind="report", deliver_to=str(outside),
+                          restrict_base=app.config.home)
+    # Also catches traversal that resolves outside the base.
+    with pytest.raises(ScheduleError):
+        app.scheduler.add("evil2", kind="report",
+                          deliver_to=str(app.config.home / ".." / "escape"),
+                          restrict_base=app.config.home)
+    # A destination inside the home tree is accepted.
+    inside = app.config.home / "drops"
+    record = app.scheduler.add("ok", kind="report", deliver_to=str(inside),
+                               restrict_base=app.config.home)
+    assert record["deliver_to"]
+    # The trusted CLI path (no restrict_base) can still deliver anywhere.
+    record2 = app.scheduler.add("cli", kind="report", deliver_to=str(outside))
+    assert record2["deliver_to"] == str(outside)
+
+
 def test_disabled_schedule_is_skipped(app):
     record = app.scheduler.add("paused", kind="report")
     app.scheduler.set_enabled(record["schedule_id"], False)

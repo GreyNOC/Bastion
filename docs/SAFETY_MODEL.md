@@ -68,7 +68,11 @@ where each rule is enforced.
 | Telemetry replay reads local files only, size- and event-capped | `services/telemetry_ingest.py` | `test_telemetry_and_notify.py` |
 | Notifications OFF by default; webhook sink egress-guarded (HTTPS, allowlist, SSRF, no redirects) | `services/notifications.py`, `safety/fetcher.py` | `test_telemetry_and_notify.py` |
 | Schedules never self-execute; `run-due` is the only runner | `services/scheduler.py` | `test_scheduler_orchestrator.py` |
+| Web-operator schedule delivery confined to the Bastion home tree | `services/scheduler.py`, `web/server.py` | `test_scheduler_orchestrator.py` |
 | Evidence signing key 0600, never logged; signature verification constant-time | `services/evidence_center.py` | `test_evidence_signing.py` |
+| Evidence signature covers the attested metadata, not just the bundle digest | `services/evidence_center.py` | `test_evidence_signing.py` |
+| Post-login redirect confined to in-app paths (no open redirect via `next`) | `web/server.py` `_safe_next` | `test_auth_rbac.py` |
+| Token-bootstrapped sessions bound to the current token (rotation revokes) | `web/server.py` `_request_authed` | `test_auth_rbac.py` |
 
 ## Live fetching (when you turn it on)
 

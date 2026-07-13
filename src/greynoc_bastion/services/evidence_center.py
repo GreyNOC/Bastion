@@ -228,29 +228,50 @@ class EvidenceCenter:
                 h.update(chunk)
         return h.hexdigest()
 
+    @staticmethod
+    def _signing_input(*, bundle_sha256: str, bundle: str, signed_at: str,
+                       scheme: str, schema_version: str) -> bytes:
+        """Canonical bytes the HMAC covers: the bundle digest AND the attested
+        metadata, so ``signed_at`` / bundle name / scheme cannot be altered on a
+        signed sidecar while it still verifies."""
+        return json.dumps({
+            "bundle_sha256": bundle_sha256,
+            "bundle": bundle,
+            "signed_at": signed_at,
+            "scheme": scheme,
+            "schema_version": schema_version,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
     def sign_bundle(self, bundle_path: Path, *, key_path: Path) -> dict[str, Any]:
         """Write a detached signature file next to the bundle and return its info.
 
-        The signature is HMAC-SHA256 over the raw bundle bytes, so it covers the
-        manifest, every entry, and the archive structure at once. The sidecar
-        (``<bundle>.sig.json``) records the scheme, a non-reversible key id, the
-        bundle's SHA-256, and the signature.
+        The signature is HMAC-SHA256 over the bundle's SHA-256 **and** the
+        attested sidecar metadata (bundle name, ``signed_at``, scheme,
+        schema_version), so it covers the manifest, every entry, and the archive
+        structure (via the digest) plus the attestation fields themselves. The
+        sidecar (``<bundle>.sig.json``) records the scheme, a non-reversible key
+        id, the bundle's SHA-256, and the signature.
         """
         bundle_path = Path(bundle_path)
         if not bundle_path.is_file():
             raise FileNotFoundError(f"bundle not found: {bundle_path}")
         key = self._load_key(key_path)
         digest = self._digest_file(bundle_path)
-        signature = hmac.new(key, bytes.fromhex(digest), hashlib.sha256).hexdigest()
+        signed_at = utcnow_iso()
+        schema_version = "1.0"
+        signing_input = self._signing_input(
+            bundle_sha256=digest, bundle=bundle_path.name, signed_at=signed_at,
+            scheme=SIGNING_SCHEME, schema_version=schema_version)
+        signature = hmac.new(key, signing_input, hashlib.sha256).hexdigest()
         sidecar = {
             "signature_type": "greynoc-bastion-evidence-signature",
-            "schema_version": "1.0",
+            "schema_version": schema_version,
             "scheme": SIGNING_SCHEME,
             "key_id": self._key_id(key),
             "bundle": bundle_path.name,
             "bundle_sha256": digest,
             "signature": signature,
-            "signed_at": utcnow_iso(),
+            "signed_at": signed_at,
             "trust_model": (
                 "shared-key HMAC: verifiable by any holder of the same key file; "
                 "tamper evidence for transfer, not third-party non-repudiation"),
@@ -290,9 +311,24 @@ class EvidenceCenter:
                 problems.append("key id mismatch: signature was made with a different key")
         if not problems:
             digest = self._digest_file(bundle_path)
-            expected = hmac.new(key, bytes.fromhex(digest), hashlib.sha256).hexdigest()
             if digest != str(sidecar.get("bundle_sha256", "")):
                 problems.append("bundle hash mismatch: bundle bytes changed since signing")
+            # Recompute the MAC over the sidecar's OWN attested fields, then
+            # compare (constant-time). Because the digest is one of those fields
+            # and is independently checked against the actual bundle above,
+            # tampering with either the bundle bytes or any attested field
+            # (bundle name, signed_at, scheme) breaks verification.
+            expected = hmac.new(
+                key,
+                self._signing_input(
+                    bundle_sha256=str(sidecar.get("bundle_sha256", "")),
+                    bundle=str(sidecar.get("bundle", "")),
+                    signed_at=str(sidecar.get("signed_at", "")),
+                    scheme=str(sidecar.get("scheme", "")),
+                    schema_version=str(sidecar.get("schema_version", "")),
+                ),
+                hashlib.sha256,
+            ).hexdigest()
             if not hmac.compare_digest(expected, str(sidecar.get("signature", ""))):
                 problems.append("signature mismatch: bundle or signature has been tampered with")
         return {
