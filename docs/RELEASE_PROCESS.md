@@ -48,23 +48,24 @@ python scripts/build_portable.py      # dist/bastion-portable-<version>-<platfor
 python scripts/build_portable.py --no-deps   # CLI-only bundle (vendors nothing)
 ```
 
-## Evidence-bundle signing (planned — not yet implemented)
+## Evidence-bundle signing (shipped in 0.2.0)
 
-Evidence bundles today are **integrity-checked**, not **signed**:
+Evidence bundles are **integrity-checked** and can now be **detached-signed**:
 
 - Every bundle's `manifest.json` records a per-entry SHA-256 and a bundle-wide
   entry map. `bastion evidence verify <bundle>` recomputes and compares them.
-- The manifest carries `"signing": {"signed": false, "status": "not-implemented"}`
-  so downstream tools are never misled into treating a bundle as signed.
+- `bastion evidence keygen | sign | verify` add a **detached signature**
+  (`<bundle>.sig.json`) over the bundle's SHA-256 **and** its attested metadata
+  (bundle name, `signed_at`, scheme, schema version), using HMAC-SHA256 with a
+  local shared key (stored `0600`, rotation is explicit). Verification is
+  constant-time and reports tampering without raising.
+- Trust model, stated honestly: shared-key HMAC is tamper **evidence** for
+  transfer between parties who exchange the key out-of-band (e.g. air-gapped
+  export) — not third-party non-repudiation.
 
-Planned signing (Phase 3):
+Still planned (Phase 4):
 
-- A detached signature over the canonicalized `manifest.json`.
-- Candidate scheme: Ed25519, with an optional post-quantum SLH-DSA hybrid for
-  long-lived evidence (aligns with Bastion's harvest-now-decrypt-later stance).
-- Signature stored alongside the bundle; `verify_bundle` extended to check it.
-- Scaffold: `EvidenceCenter.sign_bundle()` currently raises `NotImplementedError`
-  by design — we will not ship a fake or unsigned-but-"signed" artifact.
-
-Until signing lands, treat bundles as tamper-**evident** (hash mismatch is
-detectable) but not tamper-**proof** (no cryptographic authenticity).
+- An **asymmetric** scheme (Ed25519, with an optional post-quantum SLH-DSA
+  hybrid for long-lived evidence, aligning with Bastion's harvest-now-decrypt-
+  later stance) for true public-verifiability. It needs a crypto dependency the
+  project does not yet take.

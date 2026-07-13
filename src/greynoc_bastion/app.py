@@ -80,9 +80,10 @@ class BastionApp:
         )
 
     def status(self) -> dict[str, Any]:
+        from . import __product__, __version__
         return {
-            "product": "GreyNOC Bastion",
-            "version": "0.1.0",
+            "product": __product__,
+            "version": __version__,
             "config": self.config.public_dict(),
             "counts": self.db.counts(),
             "safety_posture": self.safety_status().posture,

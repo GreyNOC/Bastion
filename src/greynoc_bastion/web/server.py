@@ -295,10 +295,11 @@ def create_app(bastion: BastionApp) -> Flask:
     # --- health --------------------------------------------------------------
     @app.get("/healthz")
     def healthz():
+        from .. import __product__, __version__
         return jsonify({
             "status": "ok",
-            "product": "GreyNOC Bastion",
-            "version": "0.1.0",
+            "product": __product__,
+            "version": __version__,
             "safety_posture": bastion.safety_status().posture,
         })
 
