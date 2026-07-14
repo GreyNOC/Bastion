@@ -29,10 +29,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __product__, __version__
 from .app import BastionApp
 from .config import load_config
 from .schemas import ReportFormat
@@ -48,6 +49,103 @@ def _sev_marker(sev: str) -> str:
         "critical": "[CRIT]", "high": "[HIGH]", "medium": "[MED ]",
         "low": "[LOW ]", "info": "[INFO]",
     }.get(sev, "[    ]")
+
+
+# --- colour + landing page ---------------------------------------------------
+# ASCII-only banner (renders identically on Windows cmd, PowerShell, and POSIX
+# terminals — no box-drawing glyphs that legacy code pages would mangle).
+_BANNER_LINES = [
+    r"  ____    _    ____ _____ ___ ___  _   _ ",
+    r" | __ )  / \  / ___|_   _|_ _/ _ \| \ | |",
+    r" |  _ \ / _ \ \___ \ | |  | | | | |  \| |",
+    r" | |_) / ___ \ ___) || |  | | |_| | |\  |",
+    r" |____/_/   \_\____/ |_| |___\___/|_| \_|",
+]
+
+
+def _use_color() -> bool:
+    """Colour only for an interactive terminal, and never when NO_COLOR is set
+    or TERM is 'dumb' (honours the https://no-color.org convention)."""
+    return (
+        sys.stdout.isatty()
+        and not os.environ.get("NO_COLOR")
+        and os.environ.get("TERM") != "dumb"
+    )
+
+
+def _c(text: str, code: str) -> str:
+    return f"\033[{code}m{text}\033[0m" if _use_color() else text
+
+
+def cmd_welcome(args) -> int:
+    """The landing page: banner, live safety posture, and the single most useful
+    next step for where this install currently is. Shown for a bare ``bastion``.
+
+    It must never crash — a fresh or unwritable environment still gets the
+    banner and quick-start, just without the live status line.
+    """
+    posture: str | None = None
+    counts: dict = {}
+    live_fetch = active = False
+    try:
+        app = _app(args)
+        status = app.status()
+        posture = status["safety_posture"]
+        counts = status["counts"]
+        live_fetch = bool(status["config"].get("live_fetch"))
+        active = bool(status["config"].get("active_checks"))
+    except Exception:  # noqa: BLE001  # nosec B110 - landing page is best-effort, never fatal
+        pass  # a fresh/unwritable env still gets the banner + quick-start below
+
+    print()
+    for line in _BANNER_LINES:
+        print(_c(line, "36"))
+    print("  " + _c(f"{__product__} {__version__}", "1;36")
+          + _c("  ·  local-first defensive console", "2"))
+
+    if posture:
+        label, code = {
+            "hardened": ("hardened", "1;32"),
+            "attention": ("attention", "1;33"),
+            "elevated": ("elevated", "1;31"),
+        }.get(posture, (posture, "1;33"))
+        flags = []
+        if live_fetch:
+            flags.append("live-fetch ON")
+        if active:
+            flags.append("active-checks ON")
+        suffix = _c("  (" + ", ".join(flags) + ")", "2") if flags else ""
+        print("  safety posture: " + _c("● " + label, code) + suffix)
+    print()
+
+    total = sum(counts.values()) if counts else 0
+    if total == 0:
+        print(_c("  You're all set — but the store is empty. Try one of these:", "1"))
+        print("    " + _c("bastion forecast demo --persist", "32")
+              + "        rank threats from bundled offline intel")
+        print("    " + _c("bastion identities scan <path>", "32")
+              + "         find leaked keys/tokens in a repo (masked)")
+        print("    " + _c("bastion assets scan-local --passive", "32")
+              + "    review your local listening services")
+        print("    " + _c("bastion orchestrate run full-sweep", "32")
+              + "     run every engine end-to-end in one go")
+    else:
+        print(_c(f"  {total} records stored. Pick up where you left off:", "1"))
+        print("    " + _c("bastion serve", "32")
+              + "                          open the dashboard (http://127.0.0.1:8788)")
+        print("    " + _c("bastion correlate", "32")
+              + "                      cross-engine view + coverage gaps")
+        print("    " + _c("bastion cases triage", "32")
+              + "                   open cases for untracked high findings")
+        print("    " + _c("bastion report build --out ./out", "32")
+              + "       build an evidence-backed report")
+
+    print()
+    print(_c("  bastion doctor", "2") + _c("   run safety self-checks    ", "2")
+          + _c("bastion --help", "2") + _c("   all commands", "2"))
+    print(_c("  Everything runs on your machine. Network fetching is OFF by default.", "2"))
+    print()
+    return 0
 
 
 def _app(args) -> BastionApp:
@@ -806,7 +904,12 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                         help="emit machine-readable JSON")
 
-    sub = p.add_subparsers(dest="command", required=True)
+    # Not required: a bare `bastion` shows the landing page (see main()).
+    sub = p.add_subparsers(dest="command", required=False)
+
+    wp = sub.add_parser("welcome", parents=[common],
+                        help="show the landing page (also shown when no command is given)")
+    wp.set_defaults(func=cmd_welcome)
 
     sp = sub.add_parser("status", parents=[common], help="show configuration and stored-record counts")
     sp.set_defaults(func=cmd_status)
@@ -1030,6 +1133,9 @@ def main(argv: list[str] | None = None) -> int:
     # Propagate the top-level --json to handlers (they read args.json).
     if not hasattr(args, "json"):
         args.json = False
+    # No subcommand -> the landing page (friendly first-run, not an error).
+    if not hasattr(args, "func"):
+        return cmd_welcome(args)
     try:
         return args.func(args)
     except KeyboardInterrupt:

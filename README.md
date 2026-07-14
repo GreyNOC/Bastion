@@ -72,6 +72,10 @@ See [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) for building these locall
 ## Quick start
 
 ```bash
+# 0. New here? Just run `bastion` — the landing page shows your safety posture
+#    and the best next step for where you are (also: `bastion welcome`).
+bastion
+
 # 1. Confirm safe defaults and a healthy environment
 bastion doctor
 
