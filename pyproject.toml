@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greynoc-bastion"
-version = "0.1.0"
+version = "0.2.0"
 description = "GreyNOC Bastion — local-first defensive cyber operations platform for under-defended organizations."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,6 +23,11 @@ dependencies = [
     "flask>=3.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/GreyNOC/Bastion"
+Repository = "https://github.com/GreyNOC/Bastion"
+Issues = "https://github.com/GreyNOC/Bastion/issues"
+
 [project.optional-dependencies]
 # Dev tooling only — none of these are runtime dependencies. The product runs
 # on Flask (+ the standard library) alone.
@@ -32,6 +37,11 @@ dev = [
     "mypy>=1.8",
     "bandit>=1.7",
     "pip-audit>=2.7",
+]
+# Release/packaging tooling (used by scripts + the release workflow).
+packaging = [
+    "build>=1.2",
+    "twine>=5.0",
 ]
 
 [project.scripts]

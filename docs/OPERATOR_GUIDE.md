@@ -134,6 +134,110 @@ bastion evidence verify ./out/<report-id>.evidence.zip
 Returns a non-zero exit code (and lists the problems) if the bundle was
 tampered with or is malformed. Add `--json` for machine-readable output.
 
+## Signing evidence bundles (tamper-evident transfer)
+
+On top of per-entry integrity you can add a **detached signature** over the whole
+bundle file:
+
+```bash
+bastion evidence keygen                                # once; key stored 0600
+bastion evidence sign ./out/<report-id>.evidence.zip   # writes <bundle>.sig.json
+bastion evidence verify ./out/<report-id>.evidence.zip --key ~/.greynoc-bastion/keys/evidence.key
+```
+
+The scheme is shared-key HMAC-SHA256: anyone holding the same key file (exchanged
+out-of-band, e.g. on removable media for an air-gapped site) can verify the bundle
+was not modified in transit. It is honest tamper evidence, **not** third-party
+non-repudiation — an asymmetric scheme is on the roadmap. Rotating the key
+(`keygen --force`) invalidates old signatures.
+
+## Working findings as cases
+
+Findings become trackable response work on the *Cases* page or the CLI:
+
+```bash
+bastion cases triage                 # open cases for untracked high+ findings (idempotent)
+bastion cases list --queue           # the workqueue: open cases, unassigned first
+bastion cases assign <case-id> alice
+bastion cases note <case-id> "rotated the token, watching for reuse"
+bastion cases close <case-id> --reason "rotated + revoked"
+bastion audit                        # every mutation is in the audit trail
+```
+
+Notes and titles are scrubbed of secrets before they are stored.
+
+## Replaying your own logs through the rule pack
+
+Beyond synthetic validation, you can replay **local** log files through every
+detection rule:
+
+```bash
+bastion detections replay --file ./auth-events.jsonl
+```
+
+The file is JSONL (one JSON event per line) or a single JSON array. Reads are
+size-capped (default 25 MB) and event-capped; malformed lines are counted and
+skipped. Rules that fire produce findings marked as live telemetry, plus
+host-level incident correlation. Bastion never tails or collects logs itself —
+you hand it a file.
+
+## Schedules and workflows
+
+Named workflows chain the engines end-to-end:
+
+```bash
+bastion orchestrate list
+bastion orchestrate run full-sweep   # forecast → validate → assets → correlate → triage → report
+```
+
+Schedules persist the intent; a local runner executes what is due:
+
+```bash
+bastion schedule add nightly --every 24 --deliver-to /srv/bastion-drops
+bastion schedule add sweep --kind workflow --workflow full-sweep --every 168
+bastion schedule run-due             # put THIS in cron / a systemd timer
+```
+
+Bastion installs no daemon and nothing fires on its own — `run-due` is the only
+executor, and every run lands in the audit trail.
+
+## Multi-operator mode (login + roles)
+
+Out of the box the loopback dashboard trusts the local user (single-operator
+mode). To share one Bastion with a team, create accounts:
+
+```bash
+bastion users add alice --role admin     # password prompted, never on argv
+bastion users add bob --role operator
+bastion users add carol --role viewer
+```
+
+The moment one account exists, the dashboard requires login. Roles:
+
+| Role | Can |
+| --- | --- |
+| `viewer` | read every page |
+| `operator` | + run modules, work cases, manage schedules |
+| `admin` | + manage operator accounts (dashboard *Operators* page) |
+
+Passwords are stored only as salted PBKDF2-HMAC-SHA256 hashes; failed logins are
+throttled and every attempt is audited. Role changes and disables take effect on
+the target's next request — no re-login needed. The last enabled admin can never
+be disabled, demoted, or deleted. The static `BASTION_DASHBOARD_TOKEN` (the
+machine/API channel) maps to `operator` and can never manage accounts.
+
+## Notifications (opt-in)
+
+`BASTION_NOTIFY=true` turns on the fabric: events (workflow runs, scheduled
+reports) append to a local JSONL file (`BASTION_NOTIFY_FILE`). To also POST them
+to a webhook, set `BASTION_NOTIFY_WEBHOOK_URL` (HTTPS) **and** put its host on
+`BASTION_NOTIFY_ALLOWLIST`; dispatches go through the same egress guard as live
+fetching. Test with:
+
+```bash
+bastion notify test
+```
+
 ## Active vs passive asset review
 
 The default is passive — Bastion reads your machine's own socket table and sends
@@ -171,6 +275,55 @@ Without both the override and the token, `serve` exits with an error rather than
 exposing an unauthenticated dashboard. Prefer an SSH tunnel to a loopback bind
 over remote exposure where possible.
 
+## Ingesting a live threat feed (opt-in)
+
+Live fetching is off by default. When you enable it, Bastion can pull a CVE feed
+over a **guarded** HTTPS request:
+
+```bash
+export BASTION_LIVE_FETCH=true
+export BASTION_FETCH_ALLOWLIST="services.nvd.nist.gov,www.cisa.gov"
+bastion forecast ingest --url https://services.nvd.nist.gov/rest/json/cves/2.0
+```
+
+Every request — and every redirect — is evaluated by the network guard: HTTPS
+only, host must be on your allowlist, must not resolve to a private/loopback/
+CGNAT/test-net address (SSRF), and the response is size- and time-capped. Without
+`BASTION_LIVE_FETCH=true` and an allowlisted host, the fetch is refused with a
+clear message. Offline ingestion (`--fixture <file>`) needs none of this.
+
+**Caching and offline resilience.** Fetched feed bodies are cached locally and
+integrity-checked (SHA-256). Within the TTL (`BASTION_FETCH_CACHE_TTL_SECONDS`,
+default 1h) a repeat ingest of the same URL is served from disk with **no**
+network request. If a live fetch fails on transport (network down, timeout, TLS),
+Bastion serves the last cached copy as a **stale fallback** rather than failing
+hard. Two flags give explicit control:
+
+```bash
+bastion forecast ingest --url <url> --refresh   # ignore the cache; force a live fetch
+bastion forecast ingest --url <url> --offline   # cache only; never touch the network
+```
+
+The cache is a performance/availability aid, **never a policy bypass**: the
+HTTPS + allowlist guard is re-checked on every ingest, so a cache hit can never
+resurrect a URL you have de-allowlisted, and a guard refusal (e.g. a redirect off
+the allowlist) is never masked by a stale copy. Set `BASTION_FETCH_CACHE=false`
+to disable caching entirely.
+
+## Adding your own detection rules
+
+Point Bastion at a directory of rule JSON files:
+
+```bash
+export BASTION_RULES_DIR=/path/to/my/rules
+bastion detections load-custom          # or: --rules /path/to/my/rules
+```
+
+Each rule is linted and **ReDoS-screened** on load. Rules with structural errors
+or unsafe regexes are rejected with reasons; accepted rules are stored as
+**drafts** and must pass the Detection Validation Range before they count as
+validated (`bastion detections validate`).
+
 ## Turning on optional capabilities
 
 All optional capabilities are configured via environment variables or a `.env` file
@@ -179,9 +332,12 @@ will warn you about anything now off its safe default.
 
 | To enable | Set | Note |
 | --- | --- | --- |
-| Live threat-feed fetching | `BASTION_LIVE_FETCH=true` + `BASTION_FETCH_ALLOWLIST=…` | HTTPS-only, allowlisted, capped, private hosts refused |
+| Live threat-feed fetching | `BASTION_LIVE_FETCH=true` + `BASTION_FETCH_ALLOWLIST=…` | HTTPS-only, allowlisted, capped, private hosts refused, redirects re-checked |
+| Custom detection rules | `BASTION_RULES_DIR=/path/to/rules` | Linted + ReDoS-screened on load; accepted rules stay drafts |
 | The AI assistant | `BASTION_AI_ASSISTANT=true` | Local, explain/summarize/ticket only |
 | A local model endpoint | `BASTION_AI_ENDPOINT=http://127.0.0.1:11434` | Cloud refused unless `BASTION_AI_ALLOW_CLOUD=true` |
+| Notifications | `BASTION_NOTIFY=true` (+ webhook: `BASTION_NOTIFY_WEBHOOK_URL` + `BASTION_NOTIFY_ALLOWLIST`) | Local file sink; webhook egress-guarded like live fetch |
+| Multi-operator login | `bastion users add <name> --role admin` | Not an env var — the first account switches the dashboard to login-required |
 
 Command execution by the assistant remains disabled and refused in the MVP.
 

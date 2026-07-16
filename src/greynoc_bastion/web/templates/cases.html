@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Cases — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Case Management</h1>
+  <div class="sub">Assign · track · close response work · persistent workqueue</div></div>
+</div>
+
+<div class="actions">
+  <form class="inline" method="post" action="{{ url_for('cases_triage') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="btn">Triage: open cases for untracked high+ findings</button>
+  </form>
+  <span class="pill">open {{ summary.open }}</span>
+  <span class="pill">in progress {{ summary.in_progress }}</span>
+  <span class="pill">unassigned {{ summary.unassigned }}</span>
+  <span class="pill">closed {{ summary.closed }}</span>
+</div>
+
+<div class="panel">
+  <h2>Open a case</h2>
+  <form class="inline" method="post" action="{{ url_for('cases_open') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input name="title" placeholder="Case title" style="min-width:280px" required>
+    <select name="severity">
+      <option value="">severity (auto)</option>
+      {% for s in ('critical','high','medium','low','info') %}<option>{{ s }}</option>{% endfor %}
+    </select>
+    <input name="assignee" placeholder="assignee (optional)">
+    <button class="btn">Open case</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Workqueue <span class="pill">{{ queue|length }}</span></h2>
+  {% if queue %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Case</th><th>Severity</th><th>Status</th><th>Assignee</th><th>Findings</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for c in queue %}
+      <tr>
+        <td><b>{{ c.title }}</b><div class="small muted mono">{{ c.case_id }} · opened {{ c.created_at }}</div>
+          {% for n in c.notes[-2:] %}<div class="small muted">[{{ n.at }}] {{ n.author }}: {{ n.text }}</div>{% endfor %}
+        </td>
+        <td><span class="badge {{ c.severity.value }}">{{ c.severity.value }}</span></td>
+        <td class="small">{{ c.status.value }}</td>
+        <td class="small">{{ c.assignee or '—' }}</td>
+        <td class="small mono">{{ c.finding_ids|length }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('cases_assign', case_id=c.case_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="assignee" placeholder="assignee" style="width:110px">
+            <button class="btn small">Assign</button>
+          </form>
+          <form class="inline" method="post" action="{{ url_for('cases_note', case_id=c.case_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="text" placeholder="note" style="width:140px">
+            <button class="btn small">Note</button>
+          </form>
+          <form class="inline" method="post" action="{{ url_for('cases_close', case_id=c.case_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="reason" placeholder="reason" style="width:110px">
+            <button class="btn small">Close</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">The workqueue is empty. Run the triage sweep, or open a case manually.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>All cases <span class="pill">{{ all_cases|length }}</span></h2>
+  {% if all_cases %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Case</th><th>Severity</th><th>Status</th><th>Assignee</th><th>Updated</th><th></th></tr></thead>
+    <tbody>
+    {% for c in all_cases %}
+      <tr>
+        <td>{{ c.title }}<div class="small muted mono">{{ c.case_id }}</div>
+          {% if c.close_reason %}<div class="small muted">closed: {{ c.close_reason }}</div>{% endif %}</td>
+        <td><span class="badge {{ c.severity.value }}">{{ c.severity.value }}</span></td>
+        <td class="small">{{ c.status.value }}</td>
+        <td class="small">{{ c.assignee or '—' }}</td>
+        <td class="small">{{ c.updated_at }}</td>
+        <td>
+          {% if c.status.value == 'closed' %}
+          <form class="inline" method="post" action="{{ url_for('cases_reopen', case_id=c.case_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn small">Reopen</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No cases yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

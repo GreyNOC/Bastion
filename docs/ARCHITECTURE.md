@@ -75,9 +75,24 @@ universal `BastionFinding` shape:
 - `ReportCenter` — renders a report to JSON/Markdown/HTML/CSV/SARIF/PDF (with a
   zero-dependency PDF writer).
 - `EvidenceCenter` — packages findings + evidence into an integrity-checked zip
-  bundle.
+  bundle; also implements detached bundle signing (keygen/sign/verify,
+  shared-key HMAC-SHA256).
 - `AIAssistantService` — safety-first wrapper over the GreyIQ adapter; disabled by
   default.
+- `CaseManagementService` — findings → assignable, auditable response work with a
+  persistent workqueue and an idempotent triage sweep.
+- `TelemetryIngestService` — replays the rule pack over local JSONL/JSON log
+  files (size- and event-capped) and emits live-telemetry findings.
+- `SchedulerService` — persisted report/workflow schedules; `run-due` is the only
+  executor (operator wires it to cron/systemd).
+- `OrchestratorService` — named cross-module workflows (`full-sweep`, …) with
+  per-step outcomes; a failed step never aborts the rest.
+- `NotificationFabric` — opt-in local file sink + egress-guarded webhook sink;
+  payloads scrubbed, dispatches audited, failures reported not raised.
+
+Operator accounts + RBAC live in `auth.py` (`OperatorStore`): PBKDF2-HMAC-SHA256
+hashes, roles `viewer < operator < admin`, last-admin protection. The dashboard
+consumes it; with zero accounts the loopback local-trust mode is unchanged.
 
 ### 4. Composition root (`app.py`) + interfaces
 

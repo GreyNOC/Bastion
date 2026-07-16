@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Schedules — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Schedules &amp; Workflows</h1>
+  <div class="sub">Report scheduling · local delivery · combined cross-module workflows</div></div>
+</div>
+
+<div class="banner ok small">
+  Local-first: nothing runs by itself. Execute due schedules with the button below or wire
+  <code>bastion schedule run-due</code> to cron / a systemd timer.
+</div>
+
+<div class="panel">
+  <h2>Workflows</h2>
+  <div class="table-scroll"><table>
+    <thead><tr><th>Workflow</th><th>Steps</th><th></th></tr></thead>
+    <tbody>
+    {% for wf in workflows %}
+      <tr>
+        <td><b>{{ wf.name }}</b><div class="small muted">{{ wf.description }}</div></td>
+        <td class="small mono">{{ wf.steps|join(' → ') }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('run_workflow') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="name" value="{{ wf.name }}">
+            <button class="btn small">Run now</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="panel">
+  <h2>Add a schedule</h2>
+  <form class="inline" method="post" action="{{ url_for('schedules_add') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input name="name" placeholder="name" required>
+    <select name="kind">
+      <option value="report">report</option>
+      <option value="workflow">workflow</option>
+    </select>
+    <select name="workflow">
+      <option value="">(workflow — only for kind=workflow)</option>
+      {% for wf in workflows %}<option>{{ wf.name }}</option>{% endfor %}
+    </select>
+    <input name="every" placeholder="every N hours" value="24" style="width:110px">
+    <input name="deliver_to" placeholder="deliver to local dir (optional)" style="min-width:220px">
+    <button class="btn">Add</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Schedules <span class="pill">{{ schedules|length }}</span></h2>
+  <div class="actions">
+    <form class="inline" method="post" action="{{ url_for('schedules_run_due') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn">Run everything due now</button>
+    </form>
+  </div>
+  {% if schedules %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Schedule</th><th>Kind</th><th>Interval</th><th>Next run</th><th>Last result</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for s in schedules %}
+      <tr>
+        <td><b>{{ s.name }}</b><div class="small muted mono">{{ s.schedule_id }}</div>
+          {% if s.deliver_to %}<div class="small muted">deliver → {{ s.deliver_to }}</div>{% endif %}</td>
+        <td class="small">{{ s.kind }}{% if s.workflow %} · {{ s.workflow }}{% endif %}</td>
+        <td class="small">every {{ s.interval_hours }}h</td>
+        <td class="small">{{ s.next_run_at }}{% if not s.enabled %} <span class="pill">disabled</span>{% endif %}</td>
+        <td class="small">{{ s.last_result or '—' }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('schedules_toggle', schedule_id=s.schedule_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="enabled" value="{{ '0' if s.enabled else '1' }}">
+            <button class="btn small">{{ 'Disable' if s.enabled else 'Enable' }}</button>
+          </form>
+          <form class="inline" method="post" action="{{ url_for('schedules_remove', schedule_id=s.schedule_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn small">Remove</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No schedules yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -160,6 +160,7 @@ class ReportCenter:
 
     def to_sarif(self, report: BastionReport) -> str:
         """SARIF 2.1.0 — one run, rules derived from finding titles."""
+        from .. import __version__
         sev_to_level = {"critical": "error", "high": "error", "medium": "warning",
                         "low": "note", "info": "note"}
         rules: dict[str, dict] = {}
@@ -198,7 +199,7 @@ class ReportCenter:
                 "tool": {"driver": {
                     "name": "GreyNOC Bastion",
                     "informationUri": "https://greynoc.local/bastion",
-                    "version": "0.1.0",
+                    "version": __version__,
                     "rules": list(rules.values()),
                 }},
                 "results": results,

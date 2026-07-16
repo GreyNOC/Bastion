@@ -36,7 +36,8 @@ untrusted users by default.
 | --- | --- | --- |
 | Secret leakage via output/logs | Mask at discovery; scrub every report format and log line; only fingerprints stored | `safety/masking.py`, `utils/logging.py` |
 | Credential misuse by the tool | Never validate/replay/transmit a credential; liveness always "unknown" | `adapters/nhi_adapter.py` |
-| SSRF via a fetch/redirect | Fail-closed netguard: HTTPS + allowlist + private-host block + redirect re-check | `safety/netguard.py` |
+| SSRF via a fetch/redirect | Fail-closed netguard: HTTPS + allowlist + private-host block (with DNS resolution) + per-redirect re-check | `safety/netguard.py`, `safety/fetcher.py` |
+| Unsafe user detection rule (ReDoS) | Custom rules are linted + ReDoS-screened on load; unsafe ones rejected | `adapters/dmz_adapter.py` |
 | ReDoS via untrusted rule regex | Screen shapes + nested-quantifier detection before compile | `utils/redos.py` |
 | Remote dashboard exposure | Refuse non-loopback bind without override + token; Bearer auth; CSRF on POST | `web/server.py` |
 | CSV/formula injection in reports | Neutralize leading `= + - @` cells | `services/report_center.py` |
@@ -56,6 +57,12 @@ enforcement table in [SAFETY_MODEL.md](SAFETY_MODEL.md).
   (hash), not tamper-*proof* (no signature yet — Phase 3).
 - **Active network reconnaissance.** Intentionally not built. Active checks are
   limited to loopback liveness of your own services.
+- **DNS rebinding on live fetch.** Mitigated: the guarded fetcher resolves the
+  host once, refuses if *any* returned address is non-public, and **pins the
+  connection to the vetted IP** (with SNI/cert validation against the real
+  hostname), so a DNS flip between check and connect cannot redirect the socket
+  to a private/loopback/metadata address. The allowlist remains the primary
+  control (only operator-approved hosts are fetchable at all).
 - **Host compromise.** Bastion assumes the host it runs on is trusted; it does
   not defend against a fully compromised host.
 

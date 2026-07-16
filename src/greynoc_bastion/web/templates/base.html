@@ -22,13 +22,31 @@
       <a href="{{ url_for('playbooks') }}" class="{{ 'active' if page=='playbooks' }}">Operator Playbooks</a>
       <a href="{{ url_for('assets') }}" class="{{ 'active' if page=='assets' }}">Assets &amp; Exposure</a>
       <a href="{{ url_for('correlation') }}" class="{{ 'active' if page=='correlation' }}">Correlation</a>
+      <a href="{{ url_for('cases') }}" class="{{ 'active' if page=='cases' }}">Cases</a>
       <a href="{{ url_for('reports') }}" class="{{ 'active' if page=='reports' }}">Reports</a>
+      <a href="{{ url_for('schedules') }}" class="{{ 'active' if page=='schedules' }}">Schedules</a>
+      {% if current_role in ('operator', 'admin') %}
+      <a href="{{ url_for('audit') }}" class="{{ 'active' if page=='audit' }}">Audit Trail</a>
+      {% endif %}
+      {% if current_role == 'admin' %}
+      <a href="{{ url_for('users') }}" class="{{ 'active' if page=='users' }}">Operators</a>
+      {% endif %}
       <a href="{{ url_for('settings') }}" class="{{ 'active' if page=='settings' }}">Settings</a>
       <a href="{{ url_for('safety') }}" class="{{ 'active' if page=='safety' }}">
         <span class="dot" style="background:var(--{{ 'ok' if posture=='hardened' else ('warn' if posture=='attention' else 'crit') }})"></span>
         Safety Status
       </a>
     </nav>
+    {% if current_user %}
+    <div class="whoami small" style="margin-top:auto;padding:12px">
+      <div class="muted">signed in as</div>
+      <div><b>{{ current_user }}</b> <span class="pill">{{ current_role }}</span></div>
+      <form method="post" action="{{ url_for('logout') }}" style="margin-top:6px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btn small">Sign out</button>
+      </form>
+    </div>
+    {% endif %}
   </aside>
   <main class="main">
     {% with messages = get_flashed_messages() %}
