@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Operators — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Operator Accounts</h1>
+  <div class="sub">Multi-operator auth + RBAC · viewer &lt; operator &lt; admin · admin only</div></div>
+</div>
+
+<div class="banner ok small">
+  Passwords are stored only as salted PBKDF2-HMAC-SHA256 hashes. Creating the first account switches
+  the dashboard to login-required. The last enabled admin can never be disabled, demoted, or deleted.
+</div>
+
+<div class="panel">
+  <h2>Add an operator</h2>
+  <form class="inline" method="post" action="{{ url_for('users_add') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input name="username" placeholder="username" autocomplete="off" required>
+    <input name="password" type="password" placeholder="password (min 10 chars)" autocomplete="new-password" required>
+    <select name="role">
+      <option>viewer</option>
+      <option selected>operator</option>
+      <option>admin</option>
+    </select>
+    <button class="btn">Add</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Accounts <span class="pill">{{ operators|length }}</span></h2>
+  {% if operators %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Username</th><th>Role</th><th>State</th><th>Created</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for o in operators %}
+      <tr>
+        <td><b>{{ o.username }}</b></td>
+        <td class="small">{{ o.role }}</td>
+        <td class="small">{{ 'disabled' if o.disabled else 'enabled' }}</td>
+        <td class="small">{{ o.created_at }}</td>
+        <td>
+          <form class="inline" method="post" action="{{ url_for('users_role', username=o.username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <select name="role">
+              {% for r in ('viewer','operator','admin') %}
+              <option {{ 'selected' if o.role == r }}>{{ r }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn small">Set role</button>
+          </form>
+          <form class="inline" method="post" action="{{ url_for('users_state', username=o.username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="disabled" value="{{ '0' if o.disabled else '1' }}">
+            <button class="btn small">{{ 'Enable' if o.disabled else 'Disable' }}</button>
+          </form>
+          <form class="inline" method="post" action="{{ url_for('users_password', username=o.username) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="password" type="password" placeholder="new password" autocomplete="new-password">
+            <button class="btn small">Set password</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">No accounts — the dashboard is in single-operator local-trust mode.
+  Bootstrap the first admin from the machine itself: <code>bastion users add &lt;name&gt; --role admin</code>.</p>
+  {% endif %}
+</div>
+{% endblock %}

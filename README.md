@@ -29,7 +29,9 @@ Bastion unifies seven modules behind one console and one shared data model:
 | **Operator Playbooks** | 30 defensive playbooks (identity attacks, ransomware, lateral movement, AI-agent abuse, post-quantum readiness, E2EE) with response checklists. | Playbooks |
 | **Assets & Exposure** | Passive review of local listening services with plain-English explanations and safe, local-only remediation guidance. | HomeGuard + Port-Manager |
 | **Correlation** | Cross-engine spine linking threats ↔ detections ↔ playbooks ↔ assets by ATT&CK technique and host; flags **forecasted techniques with no validated detection** (coverage gaps). | (new) |
-| **Report & Evidence Center** | Evidence-backed reports in HTML, Markdown, JSON, CSV, SARIF, PDF, and integrity-checked evidence bundles. | (new) |
+| **Case Management** | Assign / track / close response work built from findings, with a persistent workqueue, an idempotent triage sweep, scrubbed notes, and a full audit trail. | (new) |
+| **Report & Evidence Center** | Evidence-backed reports in HTML, Markdown, JSON, CSV, SARIF, PDF, integrity-checked evidence bundles, and **detached bundle signing** (`bastion evidence keygen/sign/verify`). | (new) |
+| **Schedules & Workflows** | Persisted report/workflow schedules with a local explicit runner (`bastion schedule run-due`), local delivery, and named cross-module workflows (`bastion orchestrate run full-sweep`). | (new) |
 | **Local AI Assistant** *(optional, off by default)* | Explains findings, summarizes reports, drafts tickets — locally, no cloud, no command execution. | GreyIQ (defensive subset) |
 
 Every finding carries the same evidence-first envelope: title, severity, confidence,
@@ -52,11 +54,28 @@ pip install -e .
 That installs the `bastion` command. (For development, `pip install -e ".[dev]"`
 adds pytest.)
 
+**Release artifacts.** Tagged releases ship a pip-installable wheel/sdist and a
+self-contained portable bundle per OS:
+
+```bash
+# From a release wheel (Flask is pulled in as the only runtime dependency):
+pip install greynoc_bastion-<version>-py3-none-any.whl
+
+# Or grab the portable bundle for your OS, unzip, and run — needs only Python:
+unzip bastion-portable-<version>-<platform>.zip && ./bastion-portable-*/bastion status
+```
+
+See [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) for building these locally.
+
 ---
 
 ## Quick start
 
 ```bash
+# 0. New here? Just run `bastion` — the landing page shows your safety posture
+#    and the best next step for where you are (also: `bastion welcome`).
+bastion
+
 # 1. Confirm safe defaults and a healthy environment
 bastion doctor
 
@@ -86,7 +105,25 @@ bastion correlate
 # 9. Export threat intel (STIX 2.1 / ATT&CK Navigator layer)
 bastion forecast export --format navigator --out ./out/layer.json
 
-# 10. Build a consolidated, evidence-backed report; open the dashboard
+# 10. Replay the rule pack over one of YOUR local log files (JSONL / JSON array)
+bastion detections replay --file ./auth-events.jsonl
+
+# 11. Work findings as cases: triage, assign, note, close — with an audit trail
+bastion cases triage
+bastion cases list --queue
+bastion audit
+
+# 12. Run a combined workflow, or schedule reports (local runner, no daemon)
+bastion orchestrate run full-sweep
+bastion schedule add nightly --every 24 --deliver-to ./out/delivered
+bastion schedule run-due          # wire this line to cron / a systemd timer
+
+# 13. Sign and verify evidence bundles for tamper-evident transfer
+bastion evidence keygen
+bastion evidence sign ./out/<report-id>.evidence.zip
+bastion evidence verify ./out/<report-id>.evidence.zip --key ~/.greynoc-bastion/keys/evidence.key
+
+# 14. Build a consolidated, evidence-backed report; open the dashboard
 bastion report build --out ./out
 bastion serve --host 127.0.0.1 --port 8788
 ```
@@ -111,6 +148,15 @@ tests:
   is disabled and refused in the MVP.
 - **Active local checks** are private/loopback only, opt-in, bounded, and logged.
 - **Generated detections stay drafts** until validated in the Range.
+- **Multi-operator auth is opt-in and hash-only.** With no accounts the dashboard
+  keeps its loopback local-trust mode; the first `bastion users add` switches it to
+  login-required with RBAC (viewer < operator < admin). Passwords are stored only
+  as salted PBKDF2 hashes; logins are throttled and audited.
+- **Notifications are off by default.** When enabled they append to a local file;
+  the optional webhook sink goes through the same HTTPS/allowlist/SSRF egress
+  guard as live fetching.
+- **Schedules never self-execute.** `bastion schedule run-due` is the only runner —
+  you wire it to cron/systemd yourself.
 
 Full model: [`docs/SAFETY_MODEL.md`](docs/SAFETY_MODEL.md) ·
 Security policy: [`SECURITY.md`](SECURITY.md).

@@ -10,9 +10,17 @@ is no extra dependency and no console-script collision with the source repos.
     bastion identities scan <path> --out <folder>
     bastion detections validate --scenario <path>
     bastion detections validate --all
+    bastion detections replay --file <log.jsonl>
     bastion playbooks list
     bastion playbooks show <name>
     bastion assets scan-local --passive
+    bastion cases open|triage|list|show|assign|note|close|reopen
+    bastion users add|list|set-role|set-password|enable|disable|delete
+    bastion schedule add|list|remove|enable|disable|run-due
+    bastion orchestrate list|run <workflow>
+    bastion notify test
+    bastion audit
+    bastion evidence keygen|sign|verify
     bastion report build --out <folder>
     bastion serve --host 127.0.0.1 --port 8788
 """
@@ -21,10 +29,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __product__, __version__
 from .app import BastionApp
 from .config import load_config
 from .schemas import ReportFormat
@@ -40,6 +49,103 @@ def _sev_marker(sev: str) -> str:
         "critical": "[CRIT]", "high": "[HIGH]", "medium": "[MED ]",
         "low": "[LOW ]", "info": "[INFO]",
     }.get(sev, "[    ]")
+
+
+# --- colour + landing page ---------------------------------------------------
+# ASCII-only banner (renders identically on Windows cmd, PowerShell, and POSIX
+# terminals — no box-drawing glyphs that legacy code pages would mangle).
+_BANNER_LINES = [
+    r"  ____    _    ____ _____ ___ ___  _   _ ",
+    r" | __ )  / \  / ___|_   _|_ _/ _ \| \ | |",
+    r" |  _ \ / _ \ \___ \ | |  | | | | |  \| |",
+    r" | |_) / ___ \ ___) || |  | | |_| | |\  |",
+    r" |____/_/   \_\____/ |_| |___\___/|_| \_|",
+]
+
+
+def _use_color() -> bool:
+    """Colour only for an interactive terminal, and never when NO_COLOR is set
+    or TERM is 'dumb' (honours the https://no-color.org convention)."""
+    return (
+        sys.stdout.isatty()
+        and not os.environ.get("NO_COLOR")
+        and os.environ.get("TERM") != "dumb"
+    )
+
+
+def _c(text: str, code: str) -> str:
+    return f"\033[{code}m{text}\033[0m" if _use_color() else text
+
+
+def cmd_welcome(args) -> int:
+    """The landing page: banner, live safety posture, and the single most useful
+    next step for where this install currently is. Shown for a bare ``bastion``.
+
+    It must never crash — a fresh or unwritable environment still gets the
+    banner and quick-start, just without the live status line.
+    """
+    posture: str | None = None
+    counts: dict = {}
+    live_fetch = active = False
+    try:
+        app = _app(args)
+        status = app.status()
+        posture = status["safety_posture"]
+        counts = status["counts"]
+        live_fetch = bool(status["config"].get("live_fetch"))
+        active = bool(status["config"].get("active_checks"))
+    except Exception:  # noqa: BLE001  # nosec B110 - landing page is best-effort, never fatal
+        pass  # a fresh/unwritable env still gets the banner + quick-start below
+
+    print()
+    for line in _BANNER_LINES:
+        print(_c(line, "36"))
+    print("  " + _c(f"{__product__} {__version__}", "1;36")
+          + _c("  ·  local-first defensive console", "2"))
+
+    if posture:
+        label, code = {
+            "hardened": ("hardened", "1;32"),
+            "attention": ("attention", "1;33"),
+            "elevated": ("elevated", "1;31"),
+        }.get(posture, (posture, "1;33"))
+        flags = []
+        if live_fetch:
+            flags.append("live-fetch ON")
+        if active:
+            flags.append("active-checks ON")
+        suffix = _c("  (" + ", ".join(flags) + ")", "2") if flags else ""
+        print("  safety posture: " + _c("● " + label, code) + suffix)
+    print()
+
+    total = sum(counts.values()) if counts else 0
+    if total == 0:
+        print(_c("  You're all set — but the store is empty. Try one of these:", "1"))
+        print("    " + _c("bastion forecast demo --persist", "32")
+              + "        rank threats from bundled offline intel")
+        print("    " + _c("bastion identities scan <path>", "32")
+              + "         find leaked keys/tokens in a repo (masked)")
+        print("    " + _c("bastion assets scan-local --passive", "32")
+              + "    review your local listening services")
+        print("    " + _c("bastion orchestrate run full-sweep", "32")
+              + "     run every engine end-to-end in one go")
+    else:
+        print(_c(f"  {total} records stored. Pick up where you left off:", "1"))
+        print("    " + _c("bastion serve", "32")
+              + "                          open the dashboard (http://127.0.0.1:8788)")
+        print("    " + _c("bastion correlate", "32")
+              + "                      cross-engine view + coverage gaps")
+        print("    " + _c("bastion cases triage", "32")
+              + "                   open cases for untracked high findings")
+        print("    " + _c("bastion report build --out ./out", "32")
+              + "       build an evidence-backed report")
+
+    print()
+    print(_c("  bastion doctor", "2") + _c("   run safety self-checks    ", "2")
+          + _c("bastion --help", "2") + _c("   all commands", "2"))
+    print(_c("  Everything runs on your machine. Network fetching is OFF by default.", "2"))
+    print()
+    return 0
 
 
 def _app(args) -> BastionApp:
@@ -94,10 +200,26 @@ def cmd_forecast(args) -> int:
     if args.forecast_cmd == "demo":
         threats = app.threat_forecast.demo(sectors=sectors, persist=args.persist)
     elif args.forecast_cmd == "ingest":
-        if not args.fixture:
-            print("error: --fixture is required for 'forecast ingest'", file=sys.stderr)
+        url = getattr(args, "url", None)
+        if url:
+            # Guarded live fetch (off by default). Refuses unless live fetching
+            # is enabled; HTTPS-only, allowlisted, SSRF-blocked, size/time-capped.
+            # Cache modes: --refresh forces live, --offline uses cache only.
+            try:
+                threats = app.threat_forecast.ingest_url(
+                    url, sectors=sectors, persist=True,
+                    refresh=getattr(args, "refresh", False),
+                    offline=getattr(args, "offline", False),
+                )
+            except Exception as exc:  # noqa: BLE001 - surface a clear operator message
+                print(f"error: live fetch refused or failed: {exc}", file=sys.stderr)
+                return 2
+        elif args.fixture:
+            threats = app.threat_forecast.ingest(Path(args.fixture), sectors=sectors, persist=True)
+        else:
+            print("error: 'forecast ingest' needs --fixture <path> or --url <https-url>",
+                  file=sys.stderr)
             return 2
-        threats = app.threat_forecast.ingest(Path(args.fixture), sectors=sectors, persist=True)
     else:
         print("error: unknown forecast subcommand", file=sys.stderr)
         return 2
@@ -330,28 +452,406 @@ def cmd_forecast_export(args) -> int:
     return 0
 
 
-def cmd_evidence(args) -> int:
+def cmd_load_custom(args) -> int:
     app = _app(args)
-    if args.evidence_cmd != "verify":
-        print("error: unknown evidence subcommand", file=sys.stderr)
-        return 2
-    path = Path(args.bundle)
-    if not path.exists():
-        print(f"error: bundle not found: {path}", file=sys.stderr)
-        return 2
-    result = app.evidence_center.verify_bundle(path)
+    rules_dir = Path(args.rules) if getattr(args, "rules", None) else None
+    result = app.load_custom_rules(rules_dir)
     if args.json:
         _print_json(result)
-        return 0 if result.get("ok") else 1
-    status = "OK" if result.get("ok") else "FAILED"
-    print(f"Evidence bundle: {status}")
-    print(f"Report ID: {result.get('report_id') or '(unknown)'}")
-    print(f"Entries verified: {result.get('entry_count', 0)}")
-    problems = result.get("problems", []) or []
-    print(f"Problems: {len(problems)}")
-    for p in problems:
-        print(f"  - {p}")
-    return 0 if result.get("ok") else 1
+        return 0 if not result.get("rejected") else 1
+    if result.get("note"):
+        print(result["note"])
+        return 0
+    print(f"Custom rules — {result['accepted_count']} accepted, {result['rejected_count']} rejected "
+          f"(from {result['rules_dir']})\n")
+    for r in result.get("accepted", []):
+        print(f"  [ok]   {r.get('id', '?'):16} {r.get('name', '')[:50]}  (DRAFT until validated)")
+    for r in result.get("rejected", []):
+        print(f"  [FAIL] {str(r.get('id') or r.get('file')):16} {'; '.join(r.get('errors', []))[:80]}")
+    return 0 if not result.get("rejected") else 1
+
+
+def _default_key_path(app) -> Path:
+    return app.config.home / "keys" / "evidence.key"
+
+
+def cmd_evidence(args) -> int:
+    app = _app(args)
+
+    if args.evidence_cmd == "keygen":
+        key_path = Path(args.key) if args.key else _default_key_path(app)
+        try:
+            written = app.evidence_center.generate_key(key_path, force=args.force)
+        except FileExistsError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        app.db.audit("evidence_keygen", actor=_actor(), detail=f"key={written}")
+        print(f"Signing key written to {written} (mode 0600).")
+        print("Share it ONLY out-of-band with parties who must verify your bundles.")
+        return 0
+
+    if args.evidence_cmd == "sign":
+        bundle = Path(args.bundle)
+        if not bundle.exists():
+            print(f"error: bundle not found: {bundle}", file=sys.stderr)
+            return 2
+        key_path = Path(args.key) if args.key else _default_key_path(app)
+        try:
+            info = app.evidence_center.sign_bundle(bundle, key_path=key_path)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        app.db.audit("evidence_signed", actor=_actor(),
+                     detail=f"bundle={bundle.name} key_id={info['key_id']}")
+        if args.json:
+            _print_json(info)
+            return 0
+        print(f"Signed: {info['signature_path']}")
+        print(f"  scheme    : {info['scheme']}")
+        print(f"  key id    : {info['key_id']}")
+        print(f"  bundle sha: {info['bundle_sha256'][:32]}…")
+        return 0
+
+    if args.evidence_cmd == "verify":
+        bundle_path = Path(args.bundle)
+        if not bundle_path.exists():
+            print(f"error: bundle not found: {bundle_path}", file=sys.stderr)
+            return 2
+        result = app.evidence_center.verify_bundle(bundle_path)
+        sig_result = None
+        if args.key or args.signature:
+            key_path = Path(args.key) if args.key else _default_key_path(app)
+            try:
+                sig_result = app.evidence_center.verify_signature(
+                    bundle_path, key_path=key_path,
+                    signature_path=Path(args.signature) if args.signature else None)
+            except (FileNotFoundError, ValueError) as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+        ok = result.get("ok") and (sig_result is None or sig_result.get("ok"))
+        if args.json:
+            _print_json({"integrity": result, "signature": sig_result, "ok": ok})
+            return 0 if ok else 1
+        status = "OK" if result.get("ok") else "FAILED"
+        print(f"Evidence bundle integrity: {status}")
+        print(f"Report ID: {result.get('report_id') or '(unknown)'}")
+        print(f"Entries verified: {result.get('entry_count', 0)}")
+        problems = result.get("problems", []) or []
+        print(f"Problems: {len(problems)}")
+        for p in problems:
+            print(f"  - {p}")
+        if sig_result is not None:
+            print(f"Detached signature: {'OK' if sig_result['ok'] else 'FAILED'}")
+            for p in sig_result.get("problems", []):
+                print(f"  - {p}")
+        return 0 if ok else 1
+
+    print("error: unknown evidence subcommand", file=sys.stderr)
+    return 2
+
+
+def _actor() -> str:
+    """The acting local user for CLI audit entries."""
+    import getpass
+    try:
+        return f"cli:{getpass.getuser()}"
+    except Exception:  # noqa: BLE001 - some containers have no passwd entry
+        return "cli:unknown"
+
+
+def _read_new_password(prompt: str = "New password: ") -> str:
+    """Read a password without echo, with confirmation. Never from argv."""
+    import getpass as _gp
+    if not sys.stdin.isatty():
+        # Non-interactive (tests, provisioning scripts): single line on stdin.
+        return sys.stdin.readline().rstrip("\n")
+    first = _gp.getpass(prompt)
+    second = _gp.getpass("Repeat password: ")
+    if first != second:
+        raise ValueError("passwords do not match")
+    return first
+
+
+def cmd_cases(args) -> int:
+    from .services.case_management import CaseError
+    app = _app(args)
+    actor = _actor()
+    try:
+        if args.cases_cmd == "open":
+            finding_ids = [f.strip() for f in (args.finding or "").split(",") if f.strip()]
+            case = app.cases.open_case(args.title, finding_ids=finding_ids,
+                                       severity=args.severity, assignee=args.assignee or "",
+                                       actor=actor)
+            if args.json:
+                _print_json(case.to_dict())
+                return 0
+            print(f"Opened {case.case_id} [{case.severity.value}] {case.title}")
+            return 0
+        if args.cases_cmd == "triage":
+            opened = app.cases.open_from_findings(min_severity=args.min_severity, actor=actor)
+            if args.json:
+                _print_json([c.to_dict() for c in opened])
+                return 0
+            print(f"Triage sweep: {len(opened)} new case(s) opened "
+                  f"for untracked {args.min_severity}+ findings.")
+            for c in opened:
+                print(f"  {c.case_id} [{c.severity.value}] {c.title[:70]}")
+            return 0
+        if args.cases_cmd == "list":
+            cases = app.cases.workqueue() if args.queue else app.cases.list_cases(
+                status=args.status, assignee=args.assignee)
+            if args.json:
+                _print_json([c.to_dict() for c in cases])
+                return 0
+            label = "workqueue (open; unassigned first)" if args.queue else "cases"
+            print(f"Case management — {len(cases)} {label}\n")
+            for c in cases:
+                who = c.assignee or "(unassigned)"
+                print(f"{_sev_marker(c.severity.value)} {c.case_id}  {c.status.value:12} "
+                      f"{who:16} {c.title[:56]}")
+            summary = app.cases.summary()
+            print(f"\nopen={summary['open']} in_progress={summary['in_progress']} "
+                  f"closed={summary['closed']} unassigned={summary['unassigned']}")
+            return 0
+        if args.cases_cmd == "show":
+            found = app.cases.get(args.case_id)
+            if not found:
+                print(f"error: case not found: {args.case_id}", file=sys.stderr)
+                return 2
+            if args.json:
+                _print_json(found.to_dict())
+                return 0
+            print(f"# {found.title}  ({found.case_id})")
+            print(f"Status: {found.status.value} | Severity: {found.severity.value} | "
+                  f"Assignee: {found.assignee or '(unassigned)'}")
+            print(f"Created: {found.created_at} by {found.created_by} | Updated: {found.updated_at}")
+            if found.closed_at:
+                print(f"Closed: {found.closed_at} — {found.close_reason}")
+            if found.finding_ids:
+                print(f"Findings: {', '.join(found.finding_ids)}")
+            for n in found.notes:
+                print(f"  [{n.at}] {n.author}: {n.text}")
+            return 0
+        if args.cases_cmd == "assign":
+            case = app.cases.assign(args.case_id, args.assignee, actor=actor)
+            print(f"{case.case_id} assigned to {case.assignee or '(unassigned)'} "
+                  f"({case.status.value})")
+            return 0
+        if args.cases_cmd == "note":
+            case = app.cases.add_note(args.case_id, args.text, actor=actor)
+            print(f"Note added to {case.case_id} ({len(case.notes)} note(s)).")
+            return 0
+        if args.cases_cmd == "close":
+            case = app.cases.close(args.case_id, reason=args.reason, actor=actor)
+            print(f"{case.case_id} closed: {case.close_reason}")
+            return 0
+        if args.cases_cmd == "reopen":
+            case = app.cases.reopen(args.case_id, actor=actor)
+            print(f"{case.case_id} reopened ({case.status.value}).")
+            return 0
+    except CaseError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print("error: unknown cases subcommand", file=sys.stderr)
+    return 2
+
+
+def cmd_users(args) -> int:
+    from .auth import AuthError
+    app = _app(args)
+    actor = _actor()
+    try:
+        if args.users_cmd == "add":
+            password = _read_new_password()
+            info = app.operators.add(args.username, password, args.role, actor=actor)
+            print(f"Operator '{info['username']}' added with role '{info['role']}'.")
+            if app.operators.multi_operator_mode():
+                print("Multi-operator mode is ON: the dashboard now requires login.")
+            return 0
+        if args.users_cmd == "list":
+            ops = app.operators.list_operators()
+            if args.json:
+                _print_json(ops)
+                return 0
+            print(f"Operators — {len(ops)} account(s)\n")
+            for o in ops:
+                state = "disabled" if o["disabled"] else "enabled"
+                print(f"  {o['username']:24} {o['role']:10} {state:9} created {o['created_at']}")
+            if not ops:
+                print("  (none — dashboard runs in single-operator local-trust mode)")
+            return 0
+        if args.users_cmd == "set-role":
+            app.operators.set_role(args.username, args.role, actor=actor)
+            print(f"Role for '{args.username}' set to '{args.role}'.")
+            return 0
+        if args.users_cmd == "set-password":
+            password = _read_new_password()
+            app.operators.set_password(args.username, password, actor=actor)
+            print(f"Password updated for '{args.username}'.")
+            return 0
+        if args.users_cmd in ("enable", "disable"):
+            app.operators.set_disabled(args.username, args.users_cmd == "disable", actor=actor)
+            print(f"Operator '{args.username}' {args.users_cmd}d.")
+            return 0
+        if args.users_cmd == "delete":
+            app.operators.delete(args.username, actor=actor)
+            print(f"Operator '{args.username}' deleted.")
+            return 0
+    except (AuthError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print("error: unknown users subcommand", file=sys.stderr)
+    return 2
+
+
+def cmd_schedule(args) -> int:
+    from .services.scheduler import ScheduleError
+    app = _app(args)
+    actor = _actor()
+    try:
+        if args.schedule_cmd == "add":
+            record = app.scheduler.add(
+                args.name, kind=args.kind, interval_hours=args.every,
+                workflow=args.workflow or "", deliver_to=args.deliver_to or "", actor=actor)
+            if args.json:
+                _print_json(record)
+                return 0
+            print(f"Schedule {record['schedule_id']} added: {record['name']!r} "
+                  f"({record['kind']}, every {record['interval_hours']}h).")
+            print("Nothing runs by itself — wire `bastion schedule run-due` to cron/systemd.")
+            return 0
+        if args.schedule_cmd == "list":
+            schedules = app.scheduler.list_schedules()
+            if args.json:
+                _print_json(schedules)
+                return 0
+            print(f"Schedules — {len(schedules)}\n")
+            for s in schedules:
+                state = "on " if s.get("enabled") else "OFF"
+                target = s.get("workflow") or "consolidated report"
+                print(f"  [{state}] {s['schedule_id']}  {s.get('name', ''):24} {s.get('kind', ''):9} "
+                      f"{target:20} every {s.get('interval_hours')}h  next {s.get('next_run_at', '')}")
+            return 0
+        if args.schedule_cmd == "remove":
+            ok = app.scheduler.remove(args.schedule_id, actor=actor)
+            print("Removed." if ok else "Nothing removed (unknown id).")
+            return 0 if ok else 2
+        if args.schedule_cmd in ("enable", "disable"):
+            app.scheduler.set_enabled(args.schedule_id, args.schedule_cmd == "enable", actor=actor)
+            print(f"Schedule {args.schedule_id} {args.schedule_cmd}d.")
+            return 0
+        if args.schedule_cmd == "run-due":
+            outcomes = app.scheduler.run_due(actor=actor)
+            if args.json:
+                _print_json(outcomes)
+                return 0 if all(o["ok"] for o in outcomes) else 1
+            if not outcomes:
+                print("Nothing due.")
+                return 0
+            for o in outcomes:
+                mark = "ok" if o["ok"] else "FAIL"
+                print(f"[{mark:4}] {o['schedule_id']} ({o['kind']}): "
+                      f"{o.get('detail') or o.get('error', '')}")
+            return 0 if all(o["ok"] for o in outcomes) else 1
+    except ScheduleError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print("error: unknown schedule subcommand", file=sys.stderr)
+    return 2
+
+
+def cmd_orchestrate(args) -> int:
+    app = _app(args)
+    if args.orchestrate_cmd == "list":
+        workflows = app.orchestrator.list_workflows()
+        if args.json:
+            _print_json(workflows)
+            return 0
+        print(f"Workflows — {len(workflows)}\n")
+        for wf in workflows:
+            print(f"  {wf['name']:22} {wf['description']}")
+            print(f"  {'':22} steps: {' -> '.join(wf['steps'])}")
+        return 0
+    if args.orchestrate_cmd == "run":
+        try:
+            result = app.orchestrator.run(args.name, actor=_actor())
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            _print_json(result)
+            return 0 if result["ok"] else 1
+        print(f"Workflow '{result['workflow']}' — {'OK' if result['ok'] else 'FAILURES'}\n")
+        for s in result["steps"]:
+            mark = "ok" if s["ok"] else "FAIL"
+            print(f"[{mark:4}] {s['step']:12} {s['summary']}  ({s['seconds']}s)")
+        return 0 if result["ok"] else 1
+    print("error: unknown orchestrate subcommand", file=sys.stderr)
+    return 2
+
+
+def cmd_replay(args) -> int:
+    from .services.telemetry_ingest import TelemetryIngestError
+    app = _app(args)
+    try:
+        result = app.telemetry.replay_file(
+            Path(args.file), max_bytes=args.max_bytes, persist=not args.no_persist,
+            actor=_actor())
+    except TelemetryIngestError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        _print_json(result)
+        return 0
+    print(f"Live telemetry replay — {result['events']} events from {result['file']}")
+    if result["skipped_lines"]:
+        print(f"  ({result['skipped_lines']} malformed/over-cap lines skipped)")
+    print(f"  {len(result['rules_fired'])}/{result['rules_evaluated']} rules fired, "
+          f"{result['alerts']} alert(s), {len(result['incidents'])} incident(s)\n")
+    for r in result["rules_fired"]:
+        print(f"{_sev_marker(r['severity'])} {r['rule_id']:16} x{r['alerts']}  {r['rule_name'][:56]}")
+    for i in result["incidents"]:
+        stage = "multi-stage" if i["multi_stage"] else "single-rule"
+        print(f"  incident: host={i['host']} rules={','.join(i['rule_ids'])} "
+              f"dwell={i['dwell_minutes']}m ({stage})")
+    return 0
+
+
+def cmd_notify(args) -> int:
+    app = _app(args)
+    if args.notify_cmd != "test":
+        print("error: unknown notify subcommand", file=sys.stderr)
+        return 2
+    result = app.notifications.notify(
+        "test", "Bastion notification test",
+        detail="If you can read this, the notification fabric is delivering.",
+        severity="info")
+    if args.json:
+        _print_json(result)
+        return 0 if result["enabled"] and all(d["ok"] for d in result["deliveries"]) else 1
+    if not result["enabled"]:
+        print("Notifications are DISABLED (safe default). Set BASTION_NOTIFY=true to enable;")
+        print("optionally BASTION_NOTIFY_WEBHOOK_URL + BASTION_NOTIFY_ALLOWLIST for a webhook sink.")
+        return 1
+    for d in result["deliveries"]:
+        mark = "ok" if d["ok"] else "FAIL"
+        target = d.get("target") or d.get("status") or d.get("error", "")
+        print(f"[{mark:4}] {d['sink']:8} {target}")
+    return 0 if all(d["ok"] for d in result["deliveries"]) else 1
+
+
+def cmd_audit(args) -> int:
+    app = _app(args)
+    entries = app.db.recent_audit(limit=args.limit)
+    if args.json:
+        _print_json(entries)
+        return 0
+    print(f"Audit trail — most recent {len(entries)} entrie(s)\n")
+    for e in entries:
+        detail = f"  {e['detail']}" if e.get("detail") else ""
+        corr = f"  [{e['correlation_id']}]" if e.get("correlation_id") else ""
+        print(f"{e['ts']}  {e['action']:26} actor={e['actor']}{detail}{corr}")
+    return 0
 
 
 def cmd_serve(args) -> int:
@@ -404,7 +904,12 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                         help="emit machine-readable JSON")
 
-    sub = p.add_subparsers(dest="command", required=True)
+    # Not required: a bare `bastion` shows the landing page (see main()).
+    sub = p.add_subparsers(dest="command", required=False)
+
+    wp = sub.add_parser("welcome", parents=[common],
+                        help="show the landing page (also shown when no command is given)")
+    wp.set_defaults(func=cmd_welcome)
 
     sp = sub.add_parser("status", parents=[common], help="show configuration and stored-record counts")
     sp.set_defaults(func=cmd_status)
@@ -419,8 +924,16 @@ def build_parser() -> argparse.ArgumentParser:
     fd.add_argument("--sectors", help="comma-separated sector relevance hints")
     fd.add_argument("--persist", action="store_true", help="store threats + findings")
     fd.set_defaults(func=cmd_forecast)
-    fi = fsub.add_parser("ingest", parents=[common], help="forecast from a CVE-feed JSON fixture (offline)")
-    fi.add_argument("--fixture", required=True, help="path to a CVE feed JSON")
+    fi = fsub.add_parser("ingest", parents=[common],
+                         help="forecast from a CVE-feed JSON fixture (offline) or a guarded URL")
+    fisrc = fi.add_mutually_exclusive_group(required=True)
+    fisrc.add_argument("--fixture", help="path to a CVE feed JSON (offline)")
+    fisrc.add_argument("--url", help="HTTPS CVE-feed URL; requires BASTION_LIVE_FETCH=true and allowlist")
+    ficache = fi.add_mutually_exclusive_group()
+    ficache.add_argument("--refresh", action="store_true",
+                         help="with --url: force a live fetch, ignoring any fresh cache")
+    ficache.add_argument("--offline", action="store_true",
+                         help="with --url: serve only from the local cache; never touch the network")
     fi.add_argument("--sectors", help="comma-separated sector relevance hints")
     fi.add_argument("--pretty", action="store_true")
     fi.set_defaults(func=cmd_forecast, persist=True)
@@ -447,6 +960,18 @@ def build_parser() -> argparse.ArgumentParser:
     dco.set_defaults(func=cmd_coverage)
     dln = desub.add_parser("lint", parents=[common], help="static-lint the detection rule pack")
     dln.set_defaults(func=cmd_lint)
+    dlc = desub.add_parser("load-custom", parents=[common],
+                           help="load user detection rules (ReDoS-screened; accepted stay drafts)")
+    dlc.add_argument("--rules", help="directory of custom rule JSON files (default: BASTION_RULES_DIR)")
+    dlc.set_defaults(func=cmd_load_custom)
+    drp = desub.add_parser("replay", parents=[common],
+                           help="replay the rule pack over a LOCAL log file (JSONL or JSON array)")
+    drp.add_argument("--file", required=True, help="local log file of events")
+    drp.add_argument("--max-bytes", type=int, default=25 * 1024 * 1024,
+                     help="refuse files larger than this (default 25MB)")
+    drp.add_argument("--no-persist", action="store_true",
+                     help="analyze only; do not store findings")
+    drp.set_defaults(func=cmd_replay)
 
     pp = sub.add_parser("playbooks", help="operator playbooks")
     psub = pp.add_subparsers(dest="playbooks_cmd", required=True)
@@ -481,9 +1006,118 @@ def build_parser() -> argparse.ArgumentParser:
 
     evp = sub.add_parser("evidence", help="evidence bundle tools")
     evsub = evp.add_subparsers(dest="evidence_cmd", required=True)
-    evv = evsub.add_parser("verify", parents=[common], help="verify an evidence bundle's integrity")
+    evv = evsub.add_parser("verify", parents=[common],
+                           help="verify a bundle's integrity (and its signature with --key)")
     evv.add_argument("bundle", help="path to a .evidence.zip bundle")
+    evv.add_argument("--key", help="signing key file (default: <home>/keys/evidence.key)")
+    evv.add_argument("--signature", help="detached signature file (default: <bundle>.sig.json)")
     evv.set_defaults(func=cmd_evidence)
+    evk = evsub.add_parser("keygen", parents=[common],
+                           help="generate a local signing key (shared-key HMAC scheme)")
+    evk.add_argument("--key", help="where to write the key (default: <home>/keys/evidence.key)")
+    evk.add_argument("--force", action="store_true", help="rotate: overwrite an existing key")
+    evk.set_defaults(func=cmd_evidence)
+    evs = evsub.add_parser("sign", parents=[common],
+                           help="write a detached signature next to a bundle")
+    evs.add_argument("bundle", help="path to a .evidence.zip bundle")
+    evs.add_argument("--key", help="signing key file (default: <home>/keys/evidence.key)")
+    evs.set_defaults(func=cmd_evidence)
+
+    cp = sub.add_parser("cases", help="case management (assign / track / close findings)")
+    csub = cp.add_subparsers(dest="cases_cmd", required=True)
+    co = csub.add_parser("open", parents=[common], help="open a case")
+    co.add_argument("title", help="case title")
+    co.add_argument("--finding", help="comma-separated finding correlation ids to link")
+    co.add_argument("--severity", help="override severity (default: derived from findings)")
+    co.add_argument("--assignee", help="assign immediately")
+    co.set_defaults(func=cmd_cases)
+    ct = csub.add_parser("triage", parents=[common],
+                         help="open cases for stored findings not yet tracked by any open case")
+    ct.add_argument("--min-severity", default="high", help="severity floor (default: high)")
+    ct.set_defaults(func=cmd_cases)
+    cl = csub.add_parser("list", parents=[common], help="list cases / the workqueue")
+    cl.add_argument("--queue", action="store_true", help="open cases only, unassigned first")
+    cl.add_argument("--status", choices=["open", "in_progress", "closed"])
+    cl.add_argument("--assignee")
+    cl.set_defaults(func=cmd_cases)
+    cs = csub.add_parser("show", parents=[common], help="show one case with notes")
+    cs.add_argument("case_id")
+    cs.set_defaults(func=cmd_cases)
+    ca = csub.add_parser("assign", parents=[common], help="assign (or unassign) a case")
+    ca.add_argument("case_id")
+    ca.add_argument("assignee", help="operator name; empty string to unassign")
+    ca.set_defaults(func=cmd_cases)
+    cn = csub.add_parser("note", parents=[common], help="add a note to a case")
+    cn.add_argument("case_id")
+    cn.add_argument("text")
+    cn.set_defaults(func=cmd_cases)
+    cc = csub.add_parser("close", parents=[common], help="close a case")
+    cc.add_argument("case_id")
+    cc.add_argument("--reason", default="resolved")
+    cc.set_defaults(func=cmd_cases)
+    cr = csub.add_parser("reopen", parents=[common], help="reopen a closed case")
+    cr.add_argument("case_id")
+    cr.set_defaults(func=cmd_cases)
+
+    up = sub.add_parser("users", help="operator accounts (auth + RBAC for the dashboard)")
+    usub = up.add_subparsers(dest="users_cmd", required=True)
+    ua = usub.add_parser("add", parents=[common],
+                         help="add an operator (password read from prompt/stdin, never argv)")
+    ua.add_argument("username")
+    ua.add_argument("--role", default="operator", choices=["viewer", "operator", "admin"])
+    ua.set_defaults(func=cmd_users)
+    ul = usub.add_parser("list", parents=[common], help="list operator accounts (no secrets)")
+    ul.set_defaults(func=cmd_users)
+    ur = usub.add_parser("set-role", parents=[common], help="change an operator's role")
+    ur.add_argument("username")
+    ur.add_argument("role", choices=["viewer", "operator", "admin"])
+    ur.set_defaults(func=cmd_users)
+    upw = usub.add_parser("set-password", parents=[common], help="reset an operator's password")
+    upw.add_argument("username")
+    upw.set_defaults(func=cmd_users)
+    for action in ("enable", "disable", "delete"):
+        ux = usub.add_parser(action, parents=[common], help=f"{action} an operator account")
+        ux.add_argument("username")
+        ux.set_defaults(func=cmd_users)
+
+    scp = sub.add_parser("schedule", help="report/workflow schedules (local runner)")
+    ssub = scp.add_subparsers(dest="schedule_cmd", required=True)
+    sa = ssub.add_parser("add", parents=[common], help="add a schedule (first run is due immediately)")
+    sa.add_argument("name")
+    sa.add_argument("--kind", default="report", choices=["report", "workflow"])
+    sa.add_argument("--every", type=float, default=24.0, help="interval in hours (default 24)")
+    sa.add_argument("--workflow", help="workflow name (required for --kind workflow)")
+    sa.add_argument("--deliver-to", help="local directory to copy report outputs into")
+    sa.set_defaults(func=cmd_schedule)
+    sl = ssub.add_parser("list", parents=[common], help="list schedules")
+    sl.set_defaults(func=cmd_schedule)
+    srm = ssub.add_parser("remove", parents=[common], help="remove a schedule")
+    srm.add_argument("schedule_id")
+    srm.set_defaults(func=cmd_schedule)
+    for action in ("enable", "disable"):
+        sx = ssub.add_parser(action, parents=[common], help=f"{action} a schedule")
+        sx.add_argument("schedule_id")
+        sx.set_defaults(func=cmd_schedule)
+    srd = ssub.add_parser("run-due", parents=[common],
+                          help="execute everything due now (wire this to cron/systemd)")
+    srd.set_defaults(func=cmd_schedule)
+
+    orp = sub.add_parser("orchestrate", help="combined cross-module workflows")
+    osub = orp.add_subparsers(dest="orchestrate_cmd", required=True)
+    ol = osub.add_parser("list", parents=[common], help="list available workflows")
+    ol.set_defaults(func=cmd_orchestrate)
+    orun = osub.add_parser("run", parents=[common], help="run a named workflow")
+    orun.add_argument("name")
+    orun.set_defaults(func=cmd_orchestrate)
+
+    np_ = sub.add_parser("notify", help="notification fabric (off by default)")
+    nsub = np_.add_subparsers(dest="notify_cmd", required=True)
+    nt = nsub.add_parser("test", parents=[common], help="send a test event to every configured sink")
+    nt.set_defaults(func=cmd_notify)
+
+    aup = sub.add_parser("audit", parents=[common], help="show the audit trail")
+    aup.add_argument("--limit", type=int, default=50)
+    aup.set_defaults(func=cmd_audit)
 
     svp = sub.add_parser("serve", help="serve the local dashboard (127.0.0.1)")
     svp.add_argument("--host", default=None, help="bind host (default 127.0.0.1)")
@@ -499,6 +1133,9 @@ def main(argv: list[str] | None = None) -> int:
     # Propagate the top-level --json to handlers (they read args.json).
     if not hasattr(args, "json"):
         args.json = False
+    # No subcommand -> the landing page (friendly first-run, not an error).
+    if not hasattr(args, "func"):
+        return cmd_welcome(args)
     try:
         return args.func(args)
     except KeyboardInterrupt:

@@ -179,3 +179,30 @@ class FindingCategory(StrEnum):
     ASSET = "asset"
     PLAYBOOK = "playbook"
     SYSTEM = "system"
+
+
+class CaseStatus(StrEnum):
+    """Lifecycle of a case in the operator workqueue."""
+
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    CLOSED = "closed"
+
+
+class OperatorRole(StrEnum):
+    """RBAC roles for multi-operator use, least to most privileged.
+
+    ``VIEWER`` reads; ``OPERATOR`` also runs modules and works cases;
+    ``ADMIN`` also manages operator accounts.
+    """
+
+    VIEWER = "viewer"
+    OPERATOR = "operator"
+    ADMIN = "admin"
+
+    @property
+    def rank(self) -> int:
+        return {"viewer": 0, "operator": 1, "admin": 2}[self.value]
+
+    def allows(self, required: OperatorRole) -> bool:
+        return self.rank >= required.rank

@@ -20,28 +20,52 @@ changelog/PR history is the source of truth.
 5. Tag the release: `git tag vX.Y.Z && git push --tags`.
 6. Draft the GitHub release notes from the merged PRs since the last tag.
 
-## Build artifacts (planned)
+## Build artifacts
 
-- Wheels / sdist via `python -m build` are planned for release automation.
-- A portable single-file build is planned; not yet part of the release flow.
+Pushing a `vX.Y.Z` tag runs [`.github/workflows/release.yml`](../.github/workflows/release.yml),
+which re-runs the full QA gate (lint, types, security lint, tests on 3.10–3.12)
+and then builds and publishes:
 
-## Evidence-bundle signing (planned — not yet implemented)
+- **Wheel + sdist** — universal, pip-installable, validated with `twine check`
+  and smoke-tested by installing the wheel and running `bastion --version` /
+  `bastion doctor`. This is the primary distribution.
+- **Portable bundles** — one self-contained `.zip` per OS (Linux/macOS/Windows).
+  Unzip anywhere and run the bundled `bastion` / `bastion.cmd` launcher; the only
+  requirement on the target is a Python 3.10+ interpreter (runtime deps are
+  vendored). Built by [`scripts/build_portable.py`](../scripts/build_portable.py),
+  which self-smoke-tests each bundle before it is uploaded.
 
-Evidence bundles today are **integrity-checked**, not **signed**:
+All artifacts are attached to a GitHub Release (`gh release create --generate-notes`).
+`workflow_dispatch` runs the same build without publishing (a pipeline dry run).
+
+Build locally:
+
+```bash
+pip install ".[packaging]"
+python -m build                       # dist/*.whl + dist/*.tar.gz
+python -m twine check dist/*
+python scripts/build_portable.py      # dist/bastion-portable-<version>-<platform>.zip
+python scripts/build_portable.py --no-deps   # CLI-only bundle (vendors nothing)
+```
+
+## Evidence-bundle signing (shipped in 0.2.0)
+
+Evidence bundles are **integrity-checked** and can now be **detached-signed**:
 
 - Every bundle's `manifest.json` records a per-entry SHA-256 and a bundle-wide
   entry map. `bastion evidence verify <bundle>` recomputes and compares them.
-- The manifest carries `"signing": {"signed": false, "status": "not-implemented"}`
-  so downstream tools are never misled into treating a bundle as signed.
+- `bastion evidence keygen | sign | verify` add a **detached signature**
+  (`<bundle>.sig.json`) over the bundle's SHA-256 **and** its attested metadata
+  (bundle name, `signed_at`, scheme, schema version), using HMAC-SHA256 with a
+  local shared key (stored `0600`, rotation is explicit). Verification is
+  constant-time and reports tampering without raising.
+- Trust model, stated honestly: shared-key HMAC is tamper **evidence** for
+  transfer between parties who exchange the key out-of-band (e.g. air-gapped
+  export) — not third-party non-repudiation.
 
-Planned signing (Phase 3):
+Still planned (Phase 4):
 
-- A detached signature over the canonicalized `manifest.json`.
-- Candidate scheme: Ed25519, with an optional post-quantum SLH-DSA hybrid for
-  long-lived evidence (aligns with Bastion's harvest-now-decrypt-later stance).
-- Signature stored alongside the bundle; `verify_bundle` extended to check it.
-- Scaffold: `EvidenceCenter.sign_bundle()` currently raises `NotImplementedError`
-  by design — we will not ship a fake or unsigned-but-"signed" artifact.
-
-Until signing lands, treat bundles as tamper-**evident** (hash mismatch is
-detectable) but not tamper-**proof** (no cryptographic authenticity).
+- An **asymmetric** scheme (Ed25519, with an optional post-quantum SLH-DSA
+  hybrid for long-lived evidence, aligning with Bastion's harvest-now-decrypt-
+  later stance) for true public-verifiability. It needs a crypto dependency the
+  project does not yet take.
