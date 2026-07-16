@@ -62,6 +62,14 @@ class Database:
         ddl = _SCHEMA_PATH.read_text(encoding="utf-8")
         with self.connect() as conn:
             conn.executescript(ddl)
+            # SQLite CREATE TABLE IF NOT EXISTS does not add new columns to an
+            # existing database. Keep small, additive migrations explicit.
+            schedule_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(schedules)").fetchall()
+            }
+            for name in ("claim_until", "claim_token"):
+                if name not in schedule_columns:
+                    conn.execute(f"ALTER TABLE schedules ADD COLUMN {name} TEXT")  # nosec B608
 
     # --- generic helpers -----------------------------------------------------
     @staticmethod
@@ -97,6 +105,19 @@ class Database:
     # --- identities ----------------------------------------------------------
     def save_identity(self, i: BastionIdentity) -> None:
         with self.connect() as conn:
+            # Replace legacy/random-id copies of the same logical observation.
+            for row in conn.execute(
+                "SELECT identity_id, data FROM identities WHERE repo_path = ?",
+                (i.repo_path,),
+            ).fetchall():
+                old = BastionIdentity.from_dict(json.loads(row["data"]))
+                if (
+                    old.location, old.line, old.detector, old.name, old.provider
+                ) == (i.location, i.line, i.detector, i.name, i.provider):
+                    conn.execute(
+                        "DELETE FROM identities WHERE identity_id = ? AND identity_id <> ?",
+                        (row["identity_id"], i.identity_id),
+                    )
             conn.execute(
                 "INSERT OR REPLACE INTO identities "
                 "(identity_id, identity_type, provider, severity, exposure, repo_path, "
@@ -140,6 +161,11 @@ class Database:
     def save_validation(self, v: BastionValidationResult) -> None:
         with self.connect() as conn:
             conn.execute(
+                "DELETE FROM validation_results "
+                "WHERE detection_id = ? AND scenario = ? AND result_id <> ?",
+                (v.detection_id, v.scenario, v.result_id),
+            )
+            conn.execute(
                 "INSERT OR REPLACE INTO validation_results "
                 "(result_id, detection_id, scenario, verdict, passed, ran_at, data) "
                 "VALUES (?,?,?,?,?,?,?)",
@@ -173,6 +199,18 @@ class Database:
     # --- assets --------------------------------------------------------------
     def save_asset(self, a: BastionAsset) -> None:
         with self.connect() as conn:
+            # host/port/protocol/process identify one observed listener. Remove
+            # a pre-migration random-id copy before storing the stable record.
+            for row in conn.execute(
+                "SELECT asset_id, data FROM assets WHERE host = ? AND port IS ?",
+                (a.host, a.port),
+            ).fetchall():
+                old = BastionAsset.from_dict(json.loads(row["data"]))
+                if (old.protocol, old.process) == (a.protocol, a.process):
+                    conn.execute(
+                        "DELETE FROM assets WHERE asset_id = ? AND asset_id <> ?",
+                        (row["asset_id"], a.asset_id),
+                    )
             conn.execute(
                 "INSERT OR REPLACE INTO assets "
                 "(asset_id, kind, host, port, exposure, severity, risky, last_seen, data) "
@@ -194,6 +232,12 @@ class Database:
     # --- findings ------------------------------------------------------------
     def save_finding(self, f: BastionFinding) -> None:
         with self.connect() as conn:
+            if f.ref_type and f.ref_id:
+                conn.execute(
+                    "DELETE FROM findings WHERE ref_type = ? AND ref_id = ? "
+                    "AND category = ? AND correlation_id <> ?",
+                    (f.ref_type, f.ref_id, f.category.value, f.correlation_id),
+                )
             conn.execute(
                 "INSERT OR REPLACE INTO findings "
                 "(correlation_id, title, severity, confidence, category, validation_status, "
@@ -210,18 +254,27 @@ class Database:
             n += 1
         return n
 
-    def list_findings(self, limit: int = 1000, category: str | None = None) -> list[BastionFinding]:
+    def list_findings(
+        self, limit: int | None = 1000, category: str | None = None,
+    ) -> list[BastionFinding]:
+        query = "SELECT data FROM findings"
+        params: list[Any] = []
+        if category:
+            query += " WHERE category = ?"
+            params.append(category)
+        query += " ORDER BY timestamp DESC"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
         with self.connect() as conn:
-            if category:
-                rows = conn.execute(
-                    "SELECT data FROM findings WHERE category = ? ORDER BY timestamp DESC LIMIT ?",
-                    (category, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT data FROM findings ORDER BY timestamp DESC LIMIT ?", (limit,)
-                ).fetchall()
+            rows = conn.execute(query, params).fetchall()
         return [BastionFinding.from_dict(json.loads(r["data"])) for r in rows]
+
+    def list_top_findings(self, limit: int = 10) -> list[BastionFinding]:
+        """Return the highest-priority findings across the full data set."""
+        findings = self.list_findings(limit=None)
+        findings.sort(key=lambda f: (f.priority_score, f.timestamp), reverse=True)
+        return findings[:limit]
 
     # --- reports & evidence --------------------------------------------------
     def save_report(self, r: BastionReport) -> None:
@@ -264,7 +317,7 @@ class Database:
         return BastionCase.from_dict(json.loads(row["data"])) if row else None
 
     def list_cases(self, *, status: str | None = None, assignee: str | None = None,
-                   limit: int = 500) -> list[BastionCase]:
+                   limit: int | None = 500) -> list[BastionCase]:
         query = "SELECT data FROM cases"
         clauses: list[str] = []
         params: list[Any] = []
@@ -276,8 +329,10 @@ class Database:
             params.append(assignee)
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
-        query += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(limit)
+        query += " ORDER BY updated_at DESC"
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
         with self.connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [BastionCase.from_dict(json.loads(r["data"])) for r in rows]
@@ -328,13 +383,40 @@ class Database:
         with self.connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO schedules "
-                "(schedule_id, name, kind, interval_hours, next_run_at, last_run_at, enabled, data) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "(schedule_id, name, kind, interval_hours, next_run_at, last_run_at, enabled, "
+                "claim_until, claim_token, data) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (record["schedule_id"], record.get("name", ""), record.get("kind", ""),
                  float(record.get("interval_hours", 24.0)), record.get("next_run_at", ""),
                  record.get("last_run_at", ""), int(bool(record.get("enabled", True))),
+                 record.get("claim_until", ""), record.get("claim_token", ""),
                  json.dumps(record, ensure_ascii=False)),
             )
+
+    def claim_due_schedules(
+        self, *, now: str, claim_until: str, claim_token: str,
+    ) -> list[dict[str, Any]]:
+        """Atomically lease all due, unclaimed schedules to one runner."""
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT schedule_id, data FROM schedules WHERE enabled = 1 "
+                "AND next_run_at <= ? AND (claim_until IS NULL OR claim_until = '' OR claim_until <= ?) "
+                "ORDER BY next_run_at",
+                (now, now),
+            ).fetchall()
+            claimed: list[dict[str, Any]] = []
+            for row in rows:
+                record = json.loads(row["data"])
+                record["claim_until"] = claim_until
+                record["claim_token"] = claim_token
+                conn.execute(
+                    "UPDATE schedules SET claim_until = ?, claim_token = ?, data = ? "
+                    "WHERE schedule_id = ?",
+                    (claim_until, claim_token, json.dumps(record, ensure_ascii=False),
+                     row["schedule_id"]),
+                )
+                claimed.append(record)
+        return claimed
 
     def get_schedule(self, schedule_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:

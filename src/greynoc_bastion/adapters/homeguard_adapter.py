@@ -14,7 +14,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..schemas import AssetKind, BastionAsset, Confidence, Exposure, Severity
+from ..schemas import (
+    AssetKind,
+    BastionAsset,
+    Confidence,
+    Exposure,
+    Severity,
+    stable_correlation_id,
+)
 from .base import BaseAdapter
 
 # Risky-port knowledge base ported verbatim (data only) from HomeGuard's
@@ -106,6 +113,9 @@ class HomeGuardAdapter(BaseAdapter):
         action = self._remediation(kb, exposure, in_baseline)
 
         return BastionAsset(
+            asset_id=stable_correlation_id(
+                "ast", host, int(port), protocol.lower(), process,
+            ),
             kind=AssetKind.SERVICE,
             label=f"{service_name} on {host}:{port}",
             host=host,
@@ -122,6 +132,9 @@ class HomeGuardAdapter(BaseAdapter):
             recommended_action=action,
             in_baseline=in_baseline,
             observed_by=observed_by,
+            correlation_id=stable_correlation_id(
+                "fnd", "asset", host, int(port), protocol.lower(), process,
+            ),
         )
 
     @staticmethod

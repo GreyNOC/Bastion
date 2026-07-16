@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import zipfile
 from pathlib import Path
@@ -34,8 +35,10 @@ def key(app, tmp_path) -> Path:
 def test_keygen_creates_0600_and_refuses_overwrite(app, tmp_path):
     key_path = tmp_path / "k.key"
     app.evidence_center.generate_key(key_path)
-    mode = stat.S_IMODE(key_path.stat().st_mode)
-    assert mode == 0o600
+    if os.name == "nt":
+        assert app.evidence_center.key_permissions_private(key_path)
+    else:
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
     assert len(bytes.fromhex(key_path.read_text().strip())) == 32
     with pytest.raises(FileExistsError):
         app.evidence_center.generate_key(key_path)

@@ -57,7 +57,7 @@ Evidence bundles are **integrity-checked** and can now be **detached-signed**:
 - `bastion evidence keygen | sign | verify` add a **detached signature**
   (`<bundle>.sig.json`) over the bundle's SHA-256 **and** its attested metadata
   (bundle name, `signed_at`, scheme, schema version), using HMAC-SHA256 with a
-  local shared key (stored `0600`, rotation is explicit). Verification is
+  local shared key (stored owner-only via POSIX mode/Windows ACL; rotation is explicit). Verification is
   constant-time and reports tampering without raising.
 - Trust model, stated honestly: shared-key HMAC is tamper **evidence** for
   transfer between parties who exchange the key out-of-band (e.g. air-gapped

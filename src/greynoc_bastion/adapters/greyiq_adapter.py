@@ -1,9 +1,9 @@
-"""GreyIQ adapter — Local AI Operator Assistant (defensive subset).
+"""GreyIQ adapter for deterministic report text and input-safety checks.
 
 Clean-room port of the *defensive* patterns from GreyNOC/GreyIQ:
   * ``trust.py`` prompt-injection detection (the single highest-value asset);
-  * deterministic, offline explanation/summary/ticket helpers that need no
-    model at all, so the assistant works fully local with zero cloud calls.
+  * deterministic explanation, summary, and ticket text helpers with no model
+    or network client.
 
 Hard exclusions (flagged unsafe in the audit and never ported):
   * the entire ``bughunter/`` offensive suite (credential replay, live scanning);
@@ -199,12 +199,11 @@ class GreyIQAdapter(BaseAdapter):
         refused = {
             "executed": False,
             "reason": (
-                "Command execution is disabled in the MVP. "
-                if not self.can_execute_commands()
-                else "Command execution gate is on, but the MVP does not run commands (safe stub). "
-            ) + "Bastion never runs commands without explicit, logged, workspace-confined approval.",
+                "Command execution is not implemented. The legacy configuration gate "
+                f"is {'on' if self.can_execute_commands() else 'off'}, but no command runner exists."
+            ),
             "command_preview": scrub_text(command)[:200],
             "workspace": workspace,
         }
-        self.log.info("command execution requested and refused (safe default)")
+        self.log.info("command execution requested and refused (no runner implemented)")
         return refused

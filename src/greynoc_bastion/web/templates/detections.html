@@ -7,10 +7,12 @@
 </div>
 
 <div class="actions">
+  {% if current_role in ('operator', 'admin') %}
   <form class="inline" method="post" action="{{ url_for('run_detections') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn">Validate full rule pack</button>
   </form>
+  {% else %}<span class="pill">Read-only access</span>{% endif %}
 </div>
 
 <div class="cards">

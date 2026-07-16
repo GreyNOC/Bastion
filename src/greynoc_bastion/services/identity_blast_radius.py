@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..adapters.base import guarded_call
 from ..adapters.nhi_adapter import NhiAdapter
 from ..db import Database
 from ..schemas import (
@@ -18,6 +19,7 @@ from ..schemas import (
     EvidenceKind,
     FindingCategory,
     ValidationStatus,
+    stable_correlation_id,
 )
 from ..utils.logging import get_logger
 
@@ -29,7 +31,7 @@ class IdentityBlastRadiusService:
         self.log = get_logger("identity_blast_radius")
 
     def scan(self, path: Path, persist: bool = True) -> list[BastionIdentity]:
-        identities = self.adapter.scan_repo(Path(path))
+        identities = guarded_call(self.adapter, self.adapter.scan_repo, Path(path))
         self.log.info("identity scan of %s found %d non-human identities", path, len(identities))
         if persist and self.db:
             for i in identities:
@@ -52,6 +54,7 @@ class IdentityBlastRadiusService:
             if i.permission_chain:
                 blast += " Chain: " + " -> ".join(i.permission_chain) + "."
             findings.append(BastionFinding(
+                correlation_id=stable_correlation_id("fnd", "identity", i.identity_id),
                 title=f"{i.name} ({i.provider or 'unknown provider'})",
                 severity=i.severity,
                 confidence=i.confidence,

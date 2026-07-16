@@ -6,13 +6,13 @@ have installed it (`pip install -e .`) and can run `bastion`.
 ## First run
 
 ```bash
-bastion doctor      # confirms safe defaults and a healthy environment
+bastion doctor      # runs local safety and health checks
 bastion status      # shows configuration and how many records are stored
 ```
 
-`doctor` runs eight self-checks (loopback binding, live-fetch default, database and
+`doctor` runs eight self-checks (loopback binding, live-fetch configuration, database and
 report-dir health, playbook corpus, detection-pack validation, secret masking, and
-AI command-execution disabled). Its result is recorded and shown on the **Safety
+confirmation that no helper command runner exists). Its result is recorded and shown on the **Safety
 Status** page.
 
 ## Using the dashboard
@@ -24,7 +24,7 @@ bastion serve --host 127.0.0.1 --port 8788
 Open **http://127.0.0.1:8788**. The dashboard is a defensive command post with:
 
 - **Overview** — posture badge, module counts, highest-priority findings, and a
-  one-click "Run demo across all modules."
+  one-click sample load for forecast, detections, identities, and assets.
 - **Threat Forecast**, **Identity Blast Radius**, **Detection Validation**,
   **Operator Playbooks**, **Assets & Exposure**, **Reports** — one page per module,
   each with a safe action button.
@@ -49,9 +49,18 @@ exposure, ransomware use, CVSS). To score your own feed export:
 
 ```bash
 bastion forecast ingest --fixture ./my-cve-export.json --sectors energy
+bastion forecast ingest --fixture ./nvd.json --epss ./first-epss.json --kev ./cisa-kev.json
 ```
 
 Live fetching is off by default; ingestion reads files you already have.
+
+EPSS is the probability of exploitation in the next 30 days. Bastion keeps that
+probability intact. Its p50/p90 timing estimate assumes a constant daily hazard:
+`lambda = -ln(1-p30)/30`. FIRST does not independently calibrate those timing
+quantiles, so every output carries the method and assumption. A CISA KEV match is
+reported as exploitation already observed and supersedes future-probability timing.
+With no EPSS observation, Bastion reports insufficient data instead of deriving a
+date from CVSS or exposure.
 
 ### Identity Blast Radius
 
@@ -112,7 +121,7 @@ local-only — Bastion tells you what to change; it never changes it for you.
 
 ### Reports & Evidence
 
-Aggregate everything into an evidence-backed report:
+Aggregate everything into a report with recorded source evidence:
 
 ```bash
 bastion report build --out ./out --formats html,markdown,json,csv,sarif,pdf
@@ -254,26 +263,22 @@ refuses with a clear message and does nothing. Active mode is limited to a short
 connect to your **own** loopback services — it never probes the LAN or the
 internet.
 
-## Exposing the dashboard beyond localhost (advanced)
+## Accessing the dashboard from another machine
 
-By default the dashboard binds to `127.0.0.1` and refuses any non-loopback bind.
-If you must reach it from another machine, do it deliberately:
-
-```bash
-export BASTION_ALLOW_REMOTE_DASHBOARD=1
-export BASTION_DASHBOARD_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"
-bastion serve --host 0.0.0.0 --port 8788
-```
-
-Then every request needs the token:
+The built-in server always refuses non-loopback binds because it does not provide
+production TLS. The simplest safe remote path is an SSH tunnel while Bastion stays
+on loopback:
 
 ```bash
-curl -H "Authorization: Bearer $BASTION_DASHBOARD_TOKEN" http://<host>:8788/
+ssh -L 8788:127.0.0.1:8788 user@bastion-host
+# on bastion-host:
+bastion serve --host 127.0.0.1 --port 8788
 ```
 
-Without both the override and the token, `serve` exits with an error rather than
-exposing an unauthenticated dashboard. Prefer an SSH tunnel to a loopback bind
-over remote exposure where possible.
+For a shared deployment, serve `create_app()` with a production WSGI server behind
+an HTTPS reverse proxy, configure operator accounts, set a persistent
+`BASTION_WEB_SECRET`, and set `BASTION_SECURE_COOKIES=1`. The legacy
+`BASTION_ALLOW_REMOTE_DASHBOARD` flag cannot weaken the built-in server boundary.
 
 ## Ingesting a live threat feed (opt-in)
 
@@ -333,13 +338,12 @@ will warn you about anything now off its safe default.
 | To enable | Set | Note |
 | --- | --- | --- |
 | Live threat-feed fetching | `BASTION_LIVE_FETCH=true` + `BASTION_FETCH_ALLOWLIST=…` | HTTPS-only, allowlisted, capped, private hosts refused, redirects re-checked |
-| Custom detection rules | `BASTION_RULES_DIR=/path/to/rules` | Linted + ReDoS-screened on load; accepted rules stay drafts |
-| The AI assistant | `BASTION_AI_ASSISTANT=true` | Local, explain/summarize/ticket only |
-| A local model endpoint | `BASTION_AI_ENDPOINT=http://127.0.0.1:11434` | Cloud refused unless `BASTION_AI_ALLOW_CLOUD=true` |
+| Custom detection rules | `BASTION_RULES_DIR=/path/to/rules` | Linted + ReDoS-screened; add `tests/<RULE-ID>.json` to validate and promote, otherwise validation fails |
+| Offline report helper | `BASTION_AI_ASSISTANT=true` | Deterministic explain/summarize/ticket formatting; no model or network client |
 | Notifications | `BASTION_NOTIFY=true` (+ webhook: `BASTION_NOTIFY_WEBHOOK_URL` + `BASTION_NOTIFY_ALLOWLIST`) | Local file sink; webhook egress-guarded like live fetch |
 | Multi-operator login | `bastion users add <name> --role admin` | Not an env var — the first account switches the dashboard to login-required |
 
-Command execution by the assistant remains disabled and refused in the MVP.
+No command runner is implemented. Legacy AI endpoint/cloud/command flags are ignored or refused.
 
 ## Where your data lives
 

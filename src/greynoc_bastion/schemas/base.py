@@ -51,6 +51,11 @@ def stable_fingerprint(*parts: Any) -> str:
     return hashlib.sha256(joined.encode("utf-8", "replace")).hexdigest()[:16]
 
 
+def stable_correlation_id(prefix: str, *parts: Any) -> str:
+    """Return a deterministic correlation id for a logical record."""
+    return f"{prefix}-{stable_fingerprint(*parts)[:12]}"
+
+
 def _to_jsonable(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value

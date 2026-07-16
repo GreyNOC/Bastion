@@ -3,8 +3,8 @@
 Every source repo's logic is isolated behind an adapter. Adapters translate a
 source repo's concepts into Bastion's shared schemas. They must:
 
-  * never crash the caller — a broken adapter degrades to an empty/failed
-    result, it does not raise into a service;
+  * expose a guard that converts implementation exceptions to a typed failed
+    result; services turn that into one controlled boundary error;
   * declare their provenance (which source repo they represent);
   * be import-safe with no side effects at construction.
 
@@ -35,6 +35,20 @@ class AdapterResult:
 
     def unwrap(self, default=None):
         return self.data if self.ok else default
+
+
+class AdapterExecutionError(RuntimeError):
+    """Controlled service-boundary error for a failed adapter invocation."""
+
+
+def guarded_call(adapter: BaseAdapter, fn, *args, **kwargs):
+    """Invoke an adapter through its isolation boundary or raise one safe error."""
+    result = adapter.guard(fn, *args, **kwargs)
+    if not result.ok:
+        raise AdapterExecutionError(
+            f"{result.adapter} adapter failed: {result.error or 'unknown error'}"
+        )
+    return result.data
 
 
 class BaseAdapter:
@@ -76,4 +90,5 @@ class BaseAdapter:
         try:
             return self._ok(fn(*args, **kwargs))
         except Exception as exc:  # noqa: BLE001 - deliberate isolation boundary
-            return self._fail(f"{type(exc).__name__}: {exc}")
+            from ..safety.masking import scrub_text
+            return self._fail(f"{type(exc).__name__}: {scrub_text(str(exc))}")

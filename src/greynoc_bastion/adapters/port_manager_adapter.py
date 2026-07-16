@@ -118,7 +118,7 @@ class PortManagerAdapter(BaseAdapter):
             # Linux/macOS: prefer ss, fall back to netstat.
             raw = self._run(["ss", "-ltnH"]) or self._run(["netstat", "-ltn"])
             return self._parse_ss(raw)
-        except Exception as exc:  # noqa: BLE001 - never crash the caller
+        except Exception as exc:  # noqa: BLE001 - best-effort local OS observation
             self.log.warning("local listener enumeration failed: %s", exc)
             return []
 

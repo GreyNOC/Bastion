@@ -25,11 +25,10 @@ where each rule is enforced.
 - **No malware execution or malware behavior.**
 - **No public-target scanning.** Active checks are private/loopback only.
 - **No hidden telemetry.** Bastion makes no network connection you did not configure.
-- **No cloud upload by default.** Reports, scans, repo contents, and device
-  inventory stay local unless you explicitly enable cloud AI.
+- **No helper cloud upload.** The optional report helper has no model or network client.
 - **No full secrets in output.** Only masked previews and one-way fingerprints are
   stored, logged, or reported.
-- **No command execution by the AI assistant by default.**
+- **No helper command execution.** No command runner is implemented.
 - **No destructive remediation.** Bastion never changes device settings, firewall
   rules, or files. It explains and recommends; you act.
 - **No evasion or persistence tooling.**
@@ -39,7 +38,7 @@ where each rule is enforced.
 | Guarantee | Enforced in | Covered by test |
 | --- | --- | --- |
 | API/dashboard bind to `127.0.0.1` by default | `config.py`, `web/server.py` | `test_cli_and_app.py` |
-| Non-loopback dashboard bind refused unless override + token set | `web/server.py` `ensure_bind_allowed` | `test_dashboard_security.py` |
+| Built-in dashboard server refuses every non-loopback bind | `web/server.py` `ensure_bind_allowed` | `test_dashboard_security.py` |
 | Dashboard token auth (Bearer) when `BASTION_DASHBOARD_TOKEN` set | `web/server.py` | `test_dashboard_security.py` |
 | CSRF token required on dashboard POST actions | `web/server.py` | `test_dashboard_security.py` |
 | Active checks require `BASTION_ACTIVE_CHECKS=true` + `--active`; loopback-only | `cli.py`, `services/asset_exposure.py` | `test_dashboard_security.py` |
@@ -52,13 +51,13 @@ where each rule is enforced.
 | No full secret in any report format | `services/report_center.py` | `test_reports.py` |
 | No full secret in logs | `utils/logging.py` | `test_cli_and_app.py` |
 | Credentials never validated (liveness unknown) | `adapters/nhi_adapter.py` | `test_identity_scan.py` |
-| AI assistant disabled by default | `config.py`, `services/ai_assistant.py` | `test_adapters.py` |
-| AI command execution disabled + refused | `adapters/greyiq_adapter.py` | `test_adapters.py` |
+| Offline report helper disabled by default | `config.py`, `services/ai_assistant.py` | `test_adapters.py` |
+| No helper command runner/model/network client implemented | `adapters/greyiq_adapter.py` | `test_adapters.py` |
 | Active local checks gated + logged | `services/asset_exposure.py` | `test_cli_and_app.py` |
 | Generated detections stay drafts until validated | `schemas/`, `adapters/detections_adapter.py` | `test_schemas.py`, `test_detection_validation.py` |
 | Rule regexes screened for ReDoS | `utils/redos.py`, `adapters/dmz_adapter.py` | `test_live_fetch_and_rules.py` |
 | Live fetch routes every request + redirect through the guard | `safety/fetcher.py` | `test_live_fetch_and_rules.py` |
-| Custom rules are ReDoS-screened + linted before load; stay drafts | `adapters/dmz_adapter.py` `load_custom_rules` | `test_live_fetch_and_rules.py` |
+| Custom rules are screened/linted and only promote after their own passing test | `adapters/dmz_adapter.py` | `test_live_fetch_and_rules.py` |
 | Offensive playbooks excluded | `adapters/playbooks_adapter.py` | `test_adapters.py` |
 | Passwords stored only as salted PBKDF2 hashes; verification constant-time and timing-equalized | `auth.py` | `test_auth_rbac.py` |
 | First operator account switches the dashboard to login-required; RBAC on every POST | `web/server.py` | `test_auth_rbac.py` |
@@ -69,7 +68,7 @@ where each rule is enforced.
 | Notifications OFF by default; webhook sink egress-guarded (HTTPS, allowlist, SSRF, no redirects) | `services/notifications.py`, `safety/fetcher.py` | `test_telemetry_and_notify.py` |
 | Schedules never self-execute; `run-due` is the only runner | `services/scheduler.py` | `test_scheduler_orchestrator.py` |
 | Web-operator schedule delivery confined to the Bastion home tree | `services/scheduler.py`, `web/server.py` | `test_scheduler_orchestrator.py` |
-| Evidence signing key 0600, never logged; signature verification constant-time | `services/evidence_center.py` | `test_evidence_signing.py` |
+| Evidence signing key owner-only (POSIX mode/Windows ACL), never logged; signature verification constant-time | `services/evidence_center.py` | `test_evidence_signing.py` |
 | Evidence signature covers the attested metadata, not just the bundle digest | `services/evidence_center.py` | `test_evidence_signing.py` |
 | Post-login redirect confined to in-app paths (no open redirect via `next`) | `web/server.py` `_safe_next` | `test_auth_rbac.py` |
 | Token-bootstrapped sessions bound to the current token (rotation revokes) | `web/server.py` `_request_authed` | `test_auth_rbac.py` |
@@ -89,20 +88,17 @@ order:
 Response-size and timeout caps travel on the decision and are applied by the
 fetcher. Redirects are re-evaluated against the same guard.
 
-## AI assistant
+## Offline report helper
 
-The optional Local AI Operator Assistant:
+The optional deterministic report helper:
 
 - is **disabled by default** (`BASTION_AI_ASSISTANT=false`);
-- runs **locally**; it never uploads data unless you also set
-  `BASTION_AI_ALLOW_CLOUD=true`;
+- has no model or network client;
 - **explains, summarizes, and drafts** using deterministic offline helpers that need
   no model at all;
 - treats file contents and feed data as **untrusted data**, screening for
   prompt-injection and wrapping content in an explicit data boundary;
-- has **command execution disabled** (`BASTION_AI_COMMAND_EXECUTION=false`) and, in
-  the MVP, does not run commands even when the gate is enabled — the capability is a
-  logged, refused stub so its posture is explicit and testable.
+- has no command runner; legacy command requests are logged and refused.
 
 ## Active local checks
 

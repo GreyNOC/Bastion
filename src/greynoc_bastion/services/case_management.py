@@ -69,11 +69,11 @@ class CaseManagementService:
         """
         floor = Severity.coerce(min_severity, Severity.HIGH)
         tracked: set[str] = set()
-        for c in self.db.list_cases(limit=1000):
+        for c in self.db.list_cases(limit=None):
             if c.is_open:
                 tracked.update(c.finding_ids)
         opened: list[BastionCase] = []
-        for f in self.db.list_findings(limit=1000, category=category):
+        for f in self.db.list_findings(limit=None, category=category):
             if f.severity.rank < floor.rank or f.correlation_id in tracked:
                 continue
             opened.append(self.open_case(
@@ -154,12 +154,12 @@ class CaseManagementService:
 
     def workqueue(self) -> list[BastionCase]:
         """Open cases ordered: unassigned first, then by severity, then age."""
-        cases = [c for c in self.db.list_cases(limit=1000) if c.is_open]
+        cases = [c for c in self.db.list_cases(limit=None) if c.is_open]
         cases.sort(key=lambda c: (bool(c.assignee), -c.severity.rank, c.created_at))
         return cases
 
     def summary(self) -> dict[str, int]:
-        cases = self.db.list_cases(limit=1000)
+        cases = self.db.list_cases(limit=None)
         return {
             "total": len(cases),
             "open": sum(1 for c in cases if c.status == CaseStatus.OPEN),
@@ -180,7 +180,7 @@ class CaseManagementService:
             return Severity.MEDIUM
         wanted: set[str] = set(finding_ids)
         top = Severity.MEDIUM
-        for f in self.db.list_findings(limit=1000):
+        for f in self.db.list_findings(limit=None):
             if f.correlation_id in wanted and f.severity.rank > top.rank:
                 top = f.severity
         return top

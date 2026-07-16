@@ -163,6 +163,8 @@ CREATE TABLE IF NOT EXISTS schedules (
     next_run_at   TEXT,
     last_run_at   TEXT,
     enabled       INTEGER DEFAULT 1,
+    claim_until   TEXT,
+    claim_token   TEXT,
     data          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_schedules_next ON schedules(next_run_at);

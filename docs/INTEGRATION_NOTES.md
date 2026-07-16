@@ -38,7 +38,7 @@ knowledge bases, fixtures) is preserved verbatim.
 | Operator Playbooks | **Playbooks** | 30 defensive markdown playbooks + CONVENTIONS + README; H1/H2/MITRE/section-5-JSON/response-checklist parsing | Data ported verbatim (`fixtures/playbooks/`) + parser (`playbooks_adapter.py`) |
 | Assets & Exposure | **HomeGuard** | `DEFAULT_RISKY_PORTS` (23 ports with plain-English "why"); exposure-aware severity; hedged indicator notes; safe, local-only remediation guidance | Reimplemented with ported data (`homeguard_adapter.py`) |
 | Assets & Exposure | **Port-Manager** | `COMMON_PORTS` + `DEV_HINTS` dev-server labeling; `classifyAddress` scope taxonomy; passive socket-table reading (lsof/ss/netstat/`netstat -ano`) | Reimplemented in Python (`port_manager_adapter.py`) |
-| Local AI Assistant | **GreyIQ** | `trust.py` prompt-injection signal set + zero-width detection; untrusted-data wrapping; deterministic explain/summarize/ticket helpers | Reimplemented as a defensive subset (`greyiq_adapter.py`) |
+| Offline report helper | **GreyIQ** | `trust.py` prompt-injection signal set + zero-width detection; untrusted-data wrapping; deterministic explain/summarize/ticket helpers | Reimplemented as a defensive subset (`greyiq_adapter.py`) |
 | Report & Evidence Center | *(new)* | Unified cross-module reporting + evidence bundles | New (`report_center.py`, `evidence_center.py`) |
 
 ## Overlaps and conflicts resolved
@@ -147,8 +147,9 @@ upstream repos' real logic via a per-engine design pass). Added:
   LLM/Agentic aligned), post-quantum primitives + HNDL + Mosca-margin, and the
   OWASP NHI Top 10 map. These are the shared join vocabulary the correlation spine
   uses.
-- **Threat Forecast**: a real exploit-**timing** forecast (probability + horizon
-  p50/p90 + confidence + window: already-exploited / imminent / near-term / …),
+- **Threat Forecast**: EPSS on its native 30-day probability horizon, with p50/p90
+  derived under an explicitly disclosed constant daily hazard assumption (not a
+  separately calibrated EPSS output); KEV is treated as exploitation already observed,
   ATT&CK technique inference from CVE text, AI-abuse classification, post-quantum
   (HNDL) assessment, and STIX 2.1 + ATT&CK Navigator layer export.
 - **Identity Blast Radius**: structural parsing of MCP server configs and

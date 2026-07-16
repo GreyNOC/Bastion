@@ -109,7 +109,7 @@ class IdentityType(StrEnum):
 
     API_KEY = "api_key"
     SERVICE_ACCOUNT = "service_account"
-    CI_CD_TOKEN = "ci_cd_token"
+    CI_CD_TOKEN = "ci_cd_token"  # nosec B105
     OAUTH_APP = "oauth_app"
     WEBHOOK = "webhook"
     MODEL_GATEWAY = "model_gateway"
@@ -119,7 +119,7 @@ class IdentityType(StrEnum):
     CLOUD_WORKLOAD = "cloud_workload"
     DEPLOYMENT_IDENTITY = "deployment_identity"
     SSH_KEY = "ssh_key"
-    GENERIC_SECRET = "generic_secret"
+    GENERIC_SECRET = "generic_secret"  # nosec B105
     UNKNOWN = "unknown"
 
 

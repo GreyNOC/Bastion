@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..adapters.base import guarded_call
 from ..adapters.dmz_adapter import DmzAdapter
 from ..db import Database
 from ..safety.masking import scrub_text
@@ -32,6 +33,7 @@ from ..schemas import (
     FindingCategory,
     Severity,
     ValidationStatus,
+    stable_correlation_id,
     utcnow_iso,
 )
 from ..utils.logging import get_logger
@@ -70,12 +72,12 @@ class TelemetryIngestService:
                 "Split the log or raise --max-bytes explicitly.")
 
         events, skipped = self._load_events(path, max_events=max_events)
-        rules = self.dmz.load_rules()
+        rules = guarded_call(self.dmz, self.dmz.load_rules)
 
         fired: list[dict[str, Any]] = []
         all_alerts: list[dict[str, Any]] = []
         for rule in rules:
-            alerts = self.dmz.evaluate_rule(rule, events)
+            alerts = guarded_call(self.dmz, self.dmz.evaluate_rule, rule, events)
             if alerts:
                 fired.append({
                     "rule_id": rule.get("id"),
@@ -84,7 +86,7 @@ class TelemetryIngestService:
                     "alerts": len(alerts),
                 })
                 all_alerts.extend(alerts)
-        incidents = self.dmz.correlate_incidents(all_alerts)
+        incidents = guarded_call(self.dmz, self.dmz.correlate_incidents, all_alerts)
 
         result = {
             "file": str(path),
@@ -161,6 +163,10 @@ class TelemetryIngestService:
             rid = str(entry["rule_id"])
             rule_alerts = by_rule.get(rid, [])
             sample = rule_alerts[0] if rule_alerts else {}
+            telemetry_ref = stable_correlation_id(
+                "tel", result["file"], rid,
+                sample.get("host"), sample.get("first_ts"), sample.get("last_ts"),
+            )
             evidence = [BastionEvidence(
                 kind=EvidenceKind.TELEMETRY,
                 summary=scrub_text(
@@ -172,6 +178,9 @@ class TelemetryIngestService:
                     ensure_ascii=False)),
             )]
             findings.append(BastionFinding(
+                correlation_id=stable_correlation_id(
+                    "fnd", "telemetry", telemetry_ref,
+                ),
                 title=f"Live telemetry: {entry['rule_name'] or rid} fired",
                 severity=Severity.coerce(entry.get("severity"), Severity.MEDIUM),
                 confidence=Confidence.MEDIUM,
@@ -186,9 +195,12 @@ class TelemetryIngestService:
                     "Review the matching events and the rule's runbook; open a case if the "
                     "activity is not expected."),
                 validation_status=ValidationStatus.VALIDATED,
-                ref_type="detection",
-                ref_id=rid,
+                ref_type="telemetry",
+                ref_id=telemetry_ref,
                 tags=["telemetry", "live-log"],
-                metadata={"alerts": len(rule_alerts), "file": result["file"]},
+                metadata={
+                    "alerts": len(rule_alerts), "file": result["file"],
+                    "detection_id": rid,
+                },
             ))
         return findings

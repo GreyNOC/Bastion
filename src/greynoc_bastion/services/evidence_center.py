@@ -18,6 +18,9 @@ import json
 import os
 import re
 import secrets
+import shutil
+import stat
+import subprocess  # nosec B404
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -98,7 +101,7 @@ class EvidenceCenter:
             "bundled_at": utcnow_iso(),
             "modules": report.modules,
             "summary": report.summary.to_dict(),
-            "secret_policy": "masked-only; no full secrets are included in this bundle",
+            "secret_policy": "masked-only; no full secrets are included in this bundle",  # nosec B105
             # Integrity is per-entry SHA-256 in this manifest. On top of that a
             # DETACHED signature over the whole bundle file is available via
             # `bastion evidence sign` (EvidenceCenter.sign_bundle) — the manifest
@@ -180,7 +183,7 @@ class EvidenceCenter:
     # --- detached signing (shared-key HMAC) ----------------------------------
     @staticmethod
     def generate_key(key_path: Path, *, force: bool = False) -> str:
-        """Create a random signing key file (hex, 0600). Refuses to overwrite."""
+        """Create an owner-only signing key. Refuses to overwrite by default."""
         key_path = Path(key_path)
         if key_path.exists() and not force:
             raise FileExistsError(
@@ -188,16 +191,75 @@ class EvidenceCenter:
                 "bundles signed with the old key will no longer verify)")
         key_path.parent.mkdir(parents=True, exist_ok=True)
         key_hex = secrets.token_bytes(_KEY_BYTES).hex()
-        # Create with owner-only permissions from the start (no chmod window).
-        fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        # Secure a new file before atomically replacing the target. This avoids
+        # a permissive window during forced rotation and preserves the old key
+        # if platform ACL hardening fails.
+        temp_path = key_path.with_name(f".{key_path.name}.{secrets.token_hex(6)}.tmp")
+        fd = os.open(str(temp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             os.write(fd, (key_hex + "\n").encode("ascii"))
         finally:
             os.close(fd)
-        # O_CREAT does not tighten an EXISTING file's mode (a rotation with
-        # --force over a previously loose key), so enforce 0600 explicitly.
-        os.chmod(key_path, 0o600)
+        try:
+            EvidenceCenter._secure_key_file(temp_path)
+            os.replace(temp_path, key_path)
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
         return str(key_path)
+
+    @staticmethod
+    def _secure_key_file(path: Path) -> None:
+        """Apply owner-only permissions using the platform's real ACL model."""
+        path = Path(path)
+        if os.name != "nt":
+            os.chmod(path, 0o600)
+            if stat.S_IMODE(path.stat().st_mode) != 0o600:
+                raise PermissionError(f"could not restrict signing key permissions: {path}")
+            return
+
+        username = os.environ.get("USERNAME", "")
+        domain = os.environ.get("USERDOMAIN", "")
+        identity = f"{domain}\\{username}" if domain and username else username
+        if not identity:
+            raise PermissionError("cannot determine the Windows identity for key ACL hardening")
+        icacls = shutil.which("icacls.exe") or shutil.which("icacls")
+        if not icacls:
+            raise PermissionError("cannot locate icacls for signing-key ACL hardening")
+        # Absolute system executable, fixed switches, and a path created by Bastion.
+        result = subprocess.run(  # noqa: S603  # nosec B603
+            [icacls, str(path), "/inheritance:r", "/grant:r", f"{identity}:(R,W)"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            raise PermissionError(
+                f"could not restrict Windows ACL on signing key: {result.stderr.strip()}"
+            )
+
+    @staticmethod
+    def key_permissions_private(path: Path) -> bool:
+        """Return whether the key is owner-only under POSIX mode bits/Windows ACLs."""
+        path = Path(path)
+        if os.name != "nt":
+            return stat.S_IMODE(path.stat().st_mode) == 0o600
+        icacls = shutil.which("icacls.exe") or shutil.which("icacls")
+        if not icacls:
+            return False
+        result = subprocess.run(  # noqa: S603  # nosec B603
+            [icacls, str(path)], capture_output=True, text=True, check=False, timeout=15,
+        )
+        acl = result.stdout.lower()
+        username = os.environ.get("USERNAME", "").lower()
+        return (
+            result.returncode == 0
+            and bool(username)
+            and username in acl
+            and "everyone:" not in acl
+            and "builtin\\users:" not in acl
+        )
 
     @staticmethod
     def _load_key(key_path: Path) -> bytes:
@@ -213,6 +275,10 @@ class EvidenceCenter:
             raise ValueError(f"signing key file is not valid hex: {key_path}") from None
         if len(key) < 16:
             raise ValueError(f"signing key is too short ({len(key)} bytes; want >= 16)")
+        if not EvidenceCenter.key_permissions_private(key_path):
+            raise PermissionError(
+                f"signing key permissions are not owner-only: {key_path}"
+            )
         return key
 
     @staticmethod

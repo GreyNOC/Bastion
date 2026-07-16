@@ -83,12 +83,12 @@ class SchedulerService:
                 raise ScheduleError(
                     f"unknown workflow: {workflow!r} (available: {', '.join(sorted(WORKFLOWS))})")
         if deliver_to:
-            dest = Path(deliver_to).expanduser()
+            dest = Path(deliver_to).expanduser().resolve()
             if dest.exists() and not dest.is_dir():
                 raise ScheduleError(f"delivery destination is not a directory: {dest}")
             if restrict_base is not None:
                 base = Path(restrict_base).expanduser().resolve()
-                resolved = dest.resolve()
+                resolved = dest
                 if resolved != base and base not in resolved.parents:
                     raise ScheduleError(
                         f"delivery destination must be inside {base} "
@@ -99,7 +99,7 @@ class SchedulerService:
             "name": name,
             "kind": kind,
             "workflow": workflow,
-            "deliver_to": str(Path(deliver_to).expanduser()) if deliver_to else "",
+            "deliver_to": str(Path(deliver_to).expanduser().resolve()) if deliver_to else "",
             "interval_hours": interval_hours,
             "enabled": True,
             "created_at": utcnow_iso(),
@@ -108,6 +108,8 @@ class SchedulerService:
             # First run is due immediately: an operator adding a schedule wants
             # the first artifact now, not interval_hours from now.
             "next_run_at": utcnow_iso(),
+            "claim_until": "",
+            "claim_token": "",  # nosec B105
         }
         self.db.save_schedule(record)
         self.db.audit("schedule_added", actor=actor,
@@ -138,13 +140,22 @@ class SchedulerService:
     def due(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
         now = now or datetime.now(timezone.utc)
         return [s for s in self.db.list_schedules()
-                if s.get("enabled") and _parse_iso(s.get("next_run_at", "")) <= now]
+                if s.get("enabled")
+                and _parse_iso(s.get("next_run_at", "")) <= now
+                and (not s.get("claim_until") or _parse_iso(s.get("claim_until", "")) <= now)]
 
     def run_due(self, *, now: datetime | None = None, actor: str = "scheduler") -> list[dict[str, Any]]:
         """Execute every due schedule; advance ``next_run_at``; report results."""
         now = now or datetime.now(timezone.utc)
+        claim_token = uuid.uuid4().hex
+        claim_until = now + timedelta(hours=1)
+        records = self.db.claim_due_schedules(
+            now=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            claim_until=claim_until.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            claim_token=claim_token,
+        )
         outcomes: list[dict[str, Any]] = []
-        for record in self.due(now=now):
+        for record in records:
             outcome = self._run_one(record, actor=actor)
             # Advance from *now*, not from the stale next_run_at, so a missed
             # window (machine asleep) doesn't cause a burst of catch-up runs.
@@ -152,6 +163,8 @@ class SchedulerService:
             record["last_result"] = "ok" if outcome["ok"] else f"failed: {outcome.get('error', '')[:200]}"
             next_at = now + timedelta(hours=float(record.get("interval_hours", 24.0)))
             record["next_run_at"] = next_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+            record["claim_until"] = ""
+            record["claim_token"] = ""  # nosec B105
             self.db.save_schedule(record)
             outcomes.append(outcome)
         return outcomes

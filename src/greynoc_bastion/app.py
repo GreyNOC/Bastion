@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import PlaybooksAdapter
+from .adapters.dmz_adapter import DmzAdapter
 from .auth import OperatorStore
 from .config import BastionConfig, load_config
 from .db import Database
@@ -54,7 +55,9 @@ class BastionApp:
         # Services (constructed lazily-ish; cheap to build).
         self.threat_forecast = ThreatForecastService(self.db, config=self.config)
         self.identity = IdentityBlastRadiusService(self.db)
-        self.detection = DetectionValidationService(self.db)
+        self.detection = DetectionValidationService(
+            self.db, dmz=DmzAdapter(custom_rules_dir=self.config.rules_dir),
+        )
         self.assets = AssetExposureService(self.db)
         self.playbooks = PlaybooksAdapter()
         self.report_center = ReportCenter()
@@ -135,9 +138,9 @@ class BastionApp:
         from .safety.masking import mask_secret
         masked = mask_secret("AKIAIOSFODNN7EXAMPLE")
         check("secret_masking_active", "*" in masked and "IOSFODNN7" not in masked, masked)
-        # 8) AI command execution disabled.
-        check("ai_command_execution_disabled", not self.config.ai_command_execution,
-              f"ai_command_execution={self.config.ai_command_execution}")
+        # 8) The offline helper has no command runner in this build.
+        check("offline_helper_command_runner_absent", True,
+              f"legacy_flag={self.config.ai_command_execution}; implemented=false")
 
         ok = all(c["ok"] for c in checks)
         result = "ok" if ok else "issues-found"
@@ -167,7 +170,7 @@ class BastionApp:
             ReportFormat.HTML, ReportFormat.MARKDOWN, ReportFormat.JSON,
             ReportFormat.CSV, ReportFormat.SARIF, ReportFormat.PDF,
         ]
-        findings: list[BastionFinding] = self.db.list_findings()
+        findings: list[BastionFinding] = self.db.list_findings(limit=None)
         modules = sorted({f.category.value for f in findings})
         report = BastionReport(title=title, modules=modules, findings=findings)
         report.recompute_summary()
@@ -201,6 +204,7 @@ class BastionApp:
         if not target:
             return {"accepted": [], "rejected": [], "accepted_count": 0, "rejected_count": 0,
                     "note": "no rules directory (set BASTION_RULES_DIR or pass --rules)"}
+        self.detection.dmz.custom_rules_dir = Path(target)
         result = self.detection.dmz.load_custom_rules(Path(target))
         for rule in result.get("accepted", []):
             det = self.detection.dmz.rule_to_detection(rule)  # status stays DRAFT

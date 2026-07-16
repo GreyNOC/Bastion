@@ -22,12 +22,11 @@ def test_non_loopback_bind_refused_by_default():
             ensure_bind_allowed(host)  # allow_remote defaults False
 
 
-def test_remote_bind_requires_override_and_token():
-    # override set but no token -> still refused
+def test_builtin_server_remote_bind_cannot_be_overridden():
     with pytest.raises(SystemExit):
         ensure_bind_allowed("0.0.0.0", allow_remote=True, has_token=False)
-    # both set -> allowed
-    ensure_bind_allowed("0.0.0.0", allow_remote=True, has_token=True)
+    with pytest.raises(SystemExit):
+        ensure_bind_allowed("0.0.0.0", allow_remote=True, has_token=True)
 
 
 def test_dashboard_auth_settings_resolved_from_config_not_only_env(monkeypatch, home):
@@ -75,6 +74,12 @@ def test_query_token_bootstraps_session(app):
         csrf = sess["_csrf"]
     assert client.post("/run/doctor", data={"csrf_token": csrf},
                        follow_redirects=True).status_code == 200
+
+
+def test_query_token_is_refused_for_non_loopback_client(app):
+    app.config.dashboard_token = "qt-123"
+    client = create_app(app).test_client()
+    assert client.get("/?token=qt-123", environ_base={"REMOTE_ADDR": "192.0.2.10"}).status_code == 401
 
 
 # --- CSRF --------------------------------------------------------------------

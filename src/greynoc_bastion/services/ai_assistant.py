@@ -1,4 +1,4 @@
-"""AI Assistant service.
+"""Offline report-helper service (compatibility class name retained).
 
 A thin, safety-first wrapper over the GreyIQ adapter. Disabled by default. When
 enabled it explains findings, summarizes reports, and drafts tickets using
@@ -24,12 +24,10 @@ class AIAssistantService:
     def __init__(self, config: BastionConfig, db: Database | None = None):
         self.config = config
         self.db = db
-        self.log = get_logger("ai_assistant")
+        self.log = get_logger("offline_report_helper")
         self.adapter = GreyIQAdapter(
             enabled=config.ai_assistant,
             command_execution=config.ai_command_execution,
-            allow_cloud=config.ai_allow_cloud,
-            endpoint=config.ai_endpoint,
         )
 
     @property
@@ -41,9 +39,9 @@ class AIAssistantService:
             return {
                 "enabled": False,
                 "message": (
-                    "The AI assistant is disabled. Enable it with BASTION_AI_ASSISTANT=true. "
-                    "It runs locally and never uploads your data unless you also set "
-                    "BASTION_AI_ALLOW_CLOUD=true."
+                    "The offline report helper is disabled. Enable its deterministic "
+                    "formatters with BASTION_AI_ASSISTANT=true. No model or network client "
+                    "is implemented."
                 ),
             }
         return None
@@ -77,7 +75,7 @@ class AIAssistantService:
         if self.db:
             self.db.audit(
                 "ai_command_execution_requested",
-                actor="ai_assistant",
+                actor="offline_report_helper",
                 detail=f"executed={result['executed']} gate={self.adapter.can_execute_commands()}",
             )
         return result

@@ -56,7 +56,6 @@ class CorrelationService:
         """Build correlation clusters from all stored records."""
         threats = self.db.list_threats(limit=1000)
         detections = self.db.list_detections(limit=1000)
-        validations = self.db.list_validations(limit=2000)
         playbooks = self.db.list_playbooks(limit=1000)
         if not playbooks:
             # Playbooks are file-backed doctrine; load them if not persisted.
@@ -64,10 +63,11 @@ class CorrelationService:
             playbooks = PlaybooksAdapter().load_all()
         assets = self.db.list_assets(limit=2000)
 
-        # Which detections are validated (covered)?
+        # Detection status is the current lifecycle state. Historical passes
+        # must not mask a later failure or tuning verdict.
         validated_ids = {
-            v.detection_id for v in validations
-            if v.passed or v.verdict == ValidationStatus.VALIDATED
+            d.detection_id for d in detections
+            if d.status == ValidationStatus.VALIDATED
         }
 
         # --- technique index across engines ---

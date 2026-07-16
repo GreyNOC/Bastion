@@ -94,11 +94,12 @@ class BastionConfig:
     # Optional directory of user-supplied detection rules (ReDoS-screened on load).
     rules_dir: Path | None = None
 
-    # Dashboard remote access (fail-closed). Resolved from .env + environment so
-    # a token placed in .env is honored (not only a real environment variable).
+    # Dashboard auth. allow_remote_dashboard is a deprecated compatibility flag;
+    # the built-in server refuses every non-loopback bind.
     allow_remote_dashboard: bool = False
     dashboard_token: str = ""
     web_secret: str = ""
+    secure_cookies: bool = False
 
     # AI assistant
     ai_assistant: bool = False
@@ -147,6 +148,7 @@ class BastionConfig:
             "notify_allowlist": list(self.notify_allowlist),
             "allow_remote_dashboard": self.allow_remote_dashboard,
             "dashboard_token_set": bool(self.dashboard_token),  # never expose the value
+            "secure_cookies": self.secure_cookies,
             "ai_assistant": self.ai_assistant,
             "ai_command_execution": self.ai_command_execution,
             "ai_endpoint_set": bool(self.ai_endpoint),
@@ -192,7 +194,8 @@ def load_config(
         "BASTION_NOTIFY", "BASTION_NOTIFY_FILE", "BASTION_NOTIFY_WEBHOOK_URL",
         "BASTION_NOTIFY_ALLOWLIST",
         "BASTION_ALLOW_REMOTE_DASHBOARD",
-        "BASTION_DASHBOARD_TOKEN", "BASTION_WEB_SECRET", "BASTION_AI_ASSISTANT",
+        "BASTION_DASHBOARD_TOKEN", "BASTION_WEB_SECRET", "BASTION_SECURE_COOKIES",
+        "BASTION_AI_ASSISTANT",
         "BASTION_AI_COMMAND_EXECUTION", "BASTION_AI_ENDPOINT",
         "BASTION_AI_ALLOW_CLOUD", "BASTION_LOG_LEVEL",
     ]
@@ -260,6 +263,7 @@ def load_config(
         allow_remote_dashboard=get("BASTION_ALLOW_REMOTE_DASHBOARD").strip() == "1",
         dashboard_token=get("BASTION_DASHBOARD_TOKEN", ""),
         web_secret=get("BASTION_WEB_SECRET", ""),
+        secure_cookies=_parse_bool(get("BASTION_SECURE_COOKIES"), False),
         ai_assistant=_parse_bool(get("BASTION_AI_ASSISTANT"), False),
         ai_command_execution=_parse_bool(get("BASTION_AI_COMMAND_EXECUTION"), False),
         ai_endpoint=get("BASTION_AI_ENDPOINT", ""),

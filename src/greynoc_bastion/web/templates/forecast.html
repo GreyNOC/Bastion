@@ -3,22 +3,31 @@
 {% block content %}
 <div class="page-head">
   <div><h1>Threat Forecast</h1>
-  <div class="sub">Threats ranked by urgency, exploitability, exposure, and ransomware relevance</div></div>
+  <div class="sub">EPSS 30-day probability, observed exploitation, and transparent time-to-event estimates</div></div>
 </div>
 
 <div class="actions">
+  {% if current_role in ('operator', 'admin') %}
   <form class="inline" method="post" action="{{ url_for('run_forecast') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="text" name="sectors" placeholder="sectors (e.g. healthcare,gateway)">
+    <label class="sr-only" for="forecast-sectors">Relevant sectors</label>
+    <input id="forecast-sectors" type="text" name="sectors" placeholder="sectors (e.g. healthcare,gateway)">
     <button class="btn">Run forecast (offline fixtures)</button>
   </form>
+  {% else %}<span class="pill">Read-only access</span>{% endif %}
+</div>
+
+<div class="banner info small">
+  EPSS is reported on its native 30-day horizon. p50/p90 are derived with a constant daily
+  hazard assumption and are not independently calibrated by FIRST. KEV means exploitation
+  has already been observed, so no future probability is shown.
 </div>
 
 <div class="panel">
   <h2>Ranked threats <span class="pill">{{ threats|length }}</span></h2>
   {% if threats %}
   <div class="table-scroll"><table>
-    <thead><tr><th>Urgency</th><th>Severity</th><th>Threat</th><th>Forecast</th><th>KEV</th><th>EPSS</th><th>ATT&CK</th><th>Drivers</th></tr></thead>
+    <thead><tr><th>Urgency</th><th>Severity</th><th>Threat</th><th>Timing estimate</th><th>KEV</th><th>EPSS (30d)</th><th>ATT&CK</th><th>Drivers</th></tr></thead>
     <tbody>
     {% for t in threats %}
       <tr>
@@ -29,9 +38,12 @@
           {% if t.forecast %}
             {% if t.forecast.window == 'already_exploited' %}
               <span class="badge critical">exploited</span>
-            {% else %}
+            {% elif t.forecast.status == 'estimated' and t.forecast.horizon_days_p50 is not none %}
               <span class="pill">{{ t.forecast.window.replace('_',' ') }}</span><br>
-              <span class="mono">~{{ t.forecast.horizon_days_p50 }}d · p={{ '%.0f%%'|format(t.forecast.exploit_probability*100) }}</span>
+              <span class="mono">p50 {{ t.forecast.horizon_days_p50 }}d · p90 {{ t.forecast.horizon_days_p90 }}d</span><br>
+              <span class="small muted">constant hazard</span>
+            {% else %}
+              <span class="muted">insufficient EPSS data</span>
             {% endif %}
           {% else %}<span class="muted">—</span>{% endif %}
         </td>
