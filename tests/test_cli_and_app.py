@@ -15,18 +15,21 @@ def test_doctor_passes_on_safe_defaults(app):
     names = {c["name"] for c in result["checks"]}
     assert "api_loopback_binding" in names
     assert "secret_masking_active" in names
-    assert "ai_command_execution_disabled" in names
+    assert "offline_helper_command_runner_absent" in names
     assert "no_offensive_playbooks" in names
 
 
-def test_doctor_flags_command_execution(config):
+def test_doctor_reports_legacy_command_flag_cannot_enable_runner(config):
     config.ai_assistant = True
     config.ai_command_execution = True
     from greynoc_bastion.app import BastionApp
     app = BastionApp(config)
     result = app.doctor()
-    exec_check = next(c for c in result["checks"] if c["name"] == "ai_command_execution_disabled")
-    assert exec_check["ok"] is False
+    exec_check = next(
+        c for c in result["checks"] if c["name"] == "offline_helper_command_runner_absent"
+    )
+    assert exec_check["ok"] is True
+    assert "implemented=false" in exec_check["detail"]
 
 
 def test_cli_doctor_command(monkeypatch, home):

@@ -12,6 +12,7 @@ from .asset import BastionAsset
 from .base import (
     BastionModel,
     new_correlation_id,
+    stable_correlation_id,
     stable_fingerprint,
     utcnow_iso,
 )
@@ -42,6 +43,7 @@ __all__ = [
     # base helpers
     "BastionModel",
     "new_correlation_id",
+    "stable_correlation_id",
     "stable_fingerprint",
     "utcnow_iso",
     # enums

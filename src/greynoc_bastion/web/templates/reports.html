@@ -3,14 +3,16 @@
 {% block content %}
 <div class="page-head">
   <div><h1>Reports &amp; Evidence</h1>
-  <div class="sub">Consolidated, evidence-backed reports · HTML · Markdown · JSON · CSV · SARIF · PDF · evidence bundle</div></div>
+  <div class="sub">Consolidated findings with source evidence · HTML · Markdown · JSON · CSV · SARIF · PDF · evidence bundle</div></div>
 </div>
 
 <div class="actions">
+  {% if current_role in ('operator', 'admin') %}
   <form class="inline" method="post" action="{{ url_for('run_report') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn">Build consolidated report</button>
   </form>
+  {% else %}<span class="pill">Read-only access</span>{% endif %}
   <span class="pill">Output: {{ config.report_dir }}</span>
 </div>
 
@@ -32,7 +34,7 @@
     </tbody>
   </table></div>
   {% else %}
-  <p class="muted">No reports yet. Build one — it aggregates every stored finding into a single evidence-backed report
+  <p class="muted">No reports yet. Build one — it aggregates every stored finding and its recorded evidence
   and writes all supported formats plus an integrity-checked evidence bundle.</p>
   {% endif %}
 </div>

@@ -202,6 +202,9 @@ def cmd_forecast(args) -> int:
     elif args.forecast_cmd == "ingest":
         url = getattr(args, "url", None)
         if url:
+            if args.epss or args.kev:
+                print("error: --epss/--kev currently require --fixture", file=sys.stderr)
+                return 2
             # Guarded live fetch (off by default). Refuses unless live fetching
             # is enabled; HTTPS-only, allowlisted, SSRF-blocked, size/time-capped.
             # Cache modes: --refresh forces live, --offline uses cache only.
@@ -215,7 +218,11 @@ def cmd_forecast(args) -> int:
                 print(f"error: live fetch refused or failed: {exc}", file=sys.stderr)
                 return 2
         elif args.fixture:
-            threats = app.threat_forecast.ingest(Path(args.fixture), sectors=sectors, persist=True)
+            threats = app.threat_forecast.ingest(
+                Path(args.fixture), sectors=sectors, persist=True,
+                epss_path=Path(args.epss) if args.epss else None,
+                kev_path=Path(args.kev) if args.kev else None,
+            )
         else:
             print("error: 'forecast ingest' needs --fixture <path> or --url <https-url>",
                   file=sys.stderr)
@@ -233,6 +240,18 @@ def cmd_forecast(args) -> int:
         if args.pretty:
             for d in t.metadata.get("drivers", []):
                 print(f"           - {d}")
+            if t.forecast:
+                if t.forecast.status == "observed":
+                    print("           timing: exploitation already observed (CISA KEV)")
+                elif (t.forecast.status == "estimated"
+                      and t.forecast.exploit_probability is not None):
+                    print(
+                        f"           timing: EPSS 30d={t.forecast.exploit_probability:.1%}; "
+                        f"p50={t.forecast.horizon_days_p50}d p90={t.forecast.horizon_days_p90}d "
+                        "(constant-hazard assumption)"
+                    )
+                else:
+                    print("           timing: insufficient data (no EPSS observation)")
             print(f"           remediation: {t.remediation[:90]}")
     return 0
 
@@ -486,7 +505,7 @@ def cmd_evidence(args) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         app.db.audit("evidence_keygen", actor=_actor(), detail=f"key={written}")
-        print(f"Signing key written to {written} (mode 0600).")
+        print(f"Signing key written to {written} (owner-only permissions).")
         print("Share it ONLY out-of-band with parties who must verify your bundles.")
         return 0
 
@@ -929,6 +948,8 @@ def build_parser() -> argparse.ArgumentParser:
     fisrc = fi.add_mutually_exclusive_group(required=True)
     fisrc.add_argument("--fixture", help="path to a CVE feed JSON (offline)")
     fisrc.add_argument("--url", help="HTTPS CVE-feed URL; requires BASTION_LIVE_FETCH=true and allowlist")
+    fi.add_argument("--epss", help="FIRST EPSS JSON export/API response to join by CVE (with --fixture)")
+    fi.add_argument("--kev", help="CISA KEV catalog JSON to join by CVE (with --fixture)")
     ficache = fi.add_mutually_exclusive_group()
     ficache.add_argument("--refresh", action="store_true",
                          help="with --url: force a live fetch, ignoring any fresh cache")
@@ -1064,7 +1085,7 @@ def build_parser() -> argparse.ArgumentParser:
     ua = usub.add_parser("add", parents=[common],
                          help="add an operator (password read from prompt/stdin, never argv)")
     ua.add_argument("username")
-    ua.add_argument("--role", default="operator", choices=["viewer", "operator", "admin"])
+    ua.add_argument("--role", default="admin", choices=["viewer", "operator", "admin"])
     ua.set_defaults(func=cmd_users)
     ul = usub.add_parser("list", parents=[common], help="list operator accounts (no secrets)")
     ul.set_defaults(func=cmd_users)
@@ -1143,6 +1164,12 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except BrokenPipeError:
         return 0
+    except Exception as exc:
+        from .adapters import AdapterExecutionError
+        if isinstance(exc, AdapterExecutionError):
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        raise
 
 
 if __name__ == "__main__":

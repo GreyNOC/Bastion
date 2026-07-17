@@ -7,29 +7,34 @@
 </div>
 
 <div class="actions">
+  {% if current_role in ('operator', 'admin') %}
   <form class="inline" method="post" action="{{ url_for('cases_triage') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn">Triage: open cases for untracked high+ findings</button>
   </form>
+  {% endif %}
   <span class="pill">open {{ summary.open }}</span>
   <span class="pill">in progress {{ summary.in_progress }}</span>
   <span class="pill">unassigned {{ summary.unassigned }}</span>
   <span class="pill">closed {{ summary.closed }}</span>
 </div>
 
-<div class="panel">
+{% if current_role in ('operator', 'admin') %}<div class="panel">
   <h2>Open a case</h2>
   <form class="inline" method="post" action="{{ url_for('cases_open') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input name="title" placeholder="Case title" style="min-width:280px" required>
-    <select name="severity">
+    <label class="sr-only" for="case-title">Case title</label>
+    <input id="case-title" name="title" placeholder="Case title" style="min-width:280px" required>
+    <label class="sr-only" for="case-severity">Severity</label>
+    <select id="case-severity" name="severity">
       <option value="">severity (auto)</option>
       {% for s in ('critical','high','medium','low','info') %}<option>{{ s }}</option>{% endfor %}
     </select>
-    <input name="assignee" placeholder="assignee (optional)">
+    <label class="sr-only" for="case-assignee">Assignee</label>
+    <input id="case-assignee" name="assignee" placeholder="assignee (optional)">
     <button class="btn">Open case</button>
   </form>
-</div>
+</div>{% endif %}
 
 <div class="panel">
   <h2>Workqueue <span class="pill">{{ queue|length }}</span></h2>
@@ -47,21 +52,26 @@
         <td class="small">{{ c.assignee or '—' }}</td>
         <td class="small mono">{{ c.finding_ids|length }}</td>
         <td>
+          {% if current_role in ('operator', 'admin') %}
           <form class="inline" method="post" action="{{ url_for('cases_assign', case_id=c.case_id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input name="assignee" placeholder="assignee" style="width:110px">
+            <label class="sr-only" for="assign-{{ c.case_id }}">Assignee for {{ c.title }}</label>
+            <input id="assign-{{ c.case_id }}" name="assignee" placeholder="assignee" style="width:110px">
             <button class="btn small">Assign</button>
           </form>
           <form class="inline" method="post" action="{{ url_for('cases_note', case_id=c.case_id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input name="text" placeholder="note" style="width:140px">
+            <label class="sr-only" for="note-{{ c.case_id }}">Note for {{ c.title }}</label>
+            <input id="note-{{ c.case_id }}" name="text" placeholder="note" style="width:140px">
             <button class="btn small">Note</button>
           </form>
           <form class="inline" method="post" action="{{ url_for('cases_close', case_id=c.case_id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input name="reason" placeholder="reason" style="width:110px">
+            <label class="sr-only" for="close-{{ c.case_id }}">Close reason for {{ c.title }}</label>
+            <input id="close-{{ c.case_id }}" name="reason" placeholder="reason" style="width:110px">
             <button class="btn small">Close</button>
           </form>
+          {% else %}<span class="muted small">read only</span>{% endif %}
         </td>
       </tr>
     {% endfor %}
@@ -87,7 +97,7 @@
         <td class="small">{{ c.assignee or '—' }}</td>
         <td class="small">{{ c.updated_at }}</td>
         <td>
-          {% if c.status.value == 'closed' %}
+          {% if c.status.value == 'closed' and current_role in ('operator', 'admin') %}
           <form class="inline" method="post" action="{{ url_for('cases_reopen', case_id=c.case_id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn small">Reopen</button>

@@ -67,11 +67,11 @@ class OperatorStore:
 
     # --- mode -------------------------------------------------------------
     def multi_operator_mode(self) -> bool:
-        """True once at least one enabled account exists (login required)."""
-        return self.db.count_operators(include_disabled=False) > 0
+        """True once any account has been configured (login required)."""
+        return self.db.count_operators(include_disabled=True) > 0
 
     # --- account management -------------------------------------------------
-    def add(self, username: str, password: str, role: OperatorRole | str = OperatorRole.OPERATOR,
+    def add(self, username: str, password: str, role: OperatorRole | str = OperatorRole.ADMIN,
             *, actor: str = "system") -> dict:
         username = str(username or "").strip().lower()
         if not _USERNAME_RE.match(username):
@@ -83,6 +83,8 @@ class OperatorStore:
             raise AuthError(f"unknown role: {role!r} (viewer, operator, admin)")
         if self.db.get_operator(username):
             raise AuthError(f"operator already exists: {username}")
+        if self.db.count_operators() == 0 and role_member != OperatorRole.ADMIN:
+            raise AuthError("the first operator account must have the admin role")
         _check_password_strength(password, username)
 
         pw_hash, pw_salt, iterations = hash_password(password)

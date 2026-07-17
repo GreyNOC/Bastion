@@ -1,4 +1,4 @@
-"""Detector-Engine adapter — the Threat Forecast intelligence brain.
+"""Detector-Engine adapter for parsing and ranking threat-feed records.
 
 Clean-room port of the defensive scoring/forecasting concepts from
 GreyNOC/Detector-Engine: it parses standard feed formats (NVD 2.0 CVE, CISA
@@ -15,6 +15,7 @@ source engine's design goal that every number has named drivers.
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any, cast
@@ -228,65 +229,79 @@ class DetectorEngineAdapter(BaseAdapter):
             return Severity.LOW
         return Severity.INFO
 
-    def forecast_exploit_timing(self, score: ThreatScore, *, kev: bool) -> ThreatForecast:
-        """Model time-to-exploitation from the scored signals (hazard-style).
+    def forecast_exploit_timing(
+        self,
+        score: ThreatScore,
+        *,
+        kev: bool,
+        epss_30d: float | None = None,
+    ) -> ThreatForecast:
+        """Estimate time to exploitation from EPSS without inventing signals.
 
-        Deterministic and explainable: KEV means already-exploited (horizon 0);
-        otherwise a "pressure" blend of exploit likelihood, exposure, CVSS, and
-        remediation priority compresses the predicted horizon and raises the
-        exploitation probability.
+        EPSS is a probability of exploitation in the next 30 days, not a
+        time-to-event distribution. We retain it exactly and derive p50/p90
+        under a disclosed constant daily hazard assumption. CVSS, exposure,
+        and ransomware signals affect urgency but never fabricate timing when
+        EPSS is missing.
         """
-        drivers: list[str] = []
         if kev:
             return ThreatForecast(
-                exploit_probability=0.97,
+                exploit_probability=None,
                 horizon_days_p50=0,
                 horizon_days_p90=0,
-                confidence=0.9,
+                confidence=None,
+                status="observed",
+                method="cisa-kev-observation",
                 window="already_exploited",
-                drivers=["On CISA KEV — exploitation already observed in the wild"],
+                drivers=["CISA KEV records exploitation already observed in the wild"],
             )
 
-        # Pressure in [0,1]: what accelerates exploitation.
-        pressure = min(1.0, (
-            0.45 * score.exploit_likelihood
-            + 0.25 * score.public_exposure
-            + 0.20 * (score.exploit_likelihood if score.exploit_likelihood else 0.0)
-            + 0.10 * score.remediation_priority
-        ))
-        # A ransomware-relevant, exposed CVE gets extra pressure.
-        if score.ransomware_relevance >= 1.0:
-            pressure = min(1.0, pressure + 0.15)
-            drivers.append("Known ransomware use accelerates weaponization")
-        if score.exploit_likelihood >= 0.5:
-            drivers.append(f"High modeled exploit likelihood ({score.exploit_likelihood:.0%})")
-        if score.public_exposure >= 0.8:
-            drivers.append("Internet-facing / edge product class")
+        if epss_30d is None:
+            return ThreatForecast(
+                status="insufficient_data",
+                method="none",
+                window="unknown",
+                drivers=["No EPSS observation is available; timing was not estimated"],
+            )
 
-        # Horizon compresses with pressure; probability rises with it.
-        p50 = int(round((1.0 - pressure) * 90))
-        p90 = int(round((1.0 - pressure) * 180))
-        exploit_probability = round(min(0.95, 0.15 + 0.8 * pressure), 3)
-        confidence = round(min(0.85, 0.35 + 0.5 * score.evidence_strength), 3)
+        probability = min(1.0, max(0.0, float(epss_30d)))
+        if probability <= 0.0:
+            hazard = 0.0
+            p50 = p90 = None
+        else:
+            # Clamp only for log(0); report the original p30 unchanged.
+            hazard = -math.log1p(-min(probability, 1.0 - 1e-12)) / 30.0
+            p50 = max(0, math.ceil(-math.log1p(-0.5) / hazard))
+            p90 = max(p50, math.ceil(-math.log1p(-0.9) / hazard))
 
-        if p50 <= 7:
+        if p50 is None:
+            window = "low"
+        elif p50 <= 7:
             window = "imminent"
         elif p50 <= 30:
             window = "near_term"
         elif p50 <= 90:
             window = "medium_term"
+        elif p50 <= 365:
+            window = "long_term"
         else:
-            window = "low"
-        if not drivers:
-            drivers.append(f"Blended exploitation pressure {pressure:.0%}")
+            window = "beyond_one_year"
 
         return ThreatForecast(
-            exploit_probability=exploit_probability,
+            exploit_probability=probability,
             horizon_days_p50=p50,
             horizon_days_p90=p90,
-            confidence=confidence,
+            hazard_rate_daily=round(hazard, 8),
+            confidence=None,
+            status="estimated",
+            method="epss-30d-constant-hazard-v1",
             window=window,
-            drivers=drivers,
+            assumptions=[
+                "EPSS is the probability of exploitation in the next 30 days",
+                "Daily exploitation hazard is assumed constant across the derived horizon",
+                "Derived p50/p90 timing is not independently calibrated by FIRST",
+            ],
+            drivers=[f"EPSS 30-day exploitation probability: {probability:.1%}"],
         )
 
     def build_threats(
@@ -327,7 +342,9 @@ class DetectorEngineAdapter(BaseAdapter):
             techniques = infer_techniques(full_text)
             ai_abuse = classify_ai_abuse(full_text)
             pqc = hndl_exposure(full_text)
-            forecast = self.forecast_exploit_timing(score, kev=bool(kev_rec))
+            forecast = self.forecast_exploit_timing(
+                score, kev=bool(kev_rec), epss_30d=epss_val,
+            )
 
             if ai_abuse:
                 category = ThreatCategory.AI_ABUSE
@@ -339,9 +356,11 @@ class DetectorEngineAdapter(BaseAdapter):
                 drivers.insert(0, "Forecast: exploitation already observed (KEV)")
             elif forecast.horizon_days_p50 is not None:
                 drivers.append(
-                    f"Forecast: ~{forecast.horizon_days_p50}d to likely exploitation "
-                    f"(p={forecast.exploit_probability:.0%}, {forecast.window.replace('_', ' ')})"
+                    f"EPSS-derived timing: p50 {forecast.horizon_days_p50}d under a "
+                    f"constant-hazard assumption (EPSS 30d={forecast.exploit_probability:.0%})"
                 )
+            else:
+                drivers.append("Exploit timing not estimated: no EPSS observation")
 
             title = (kev_rec or {}).get("name") or f"{cid}: {(cve.get('description') or '')[:80]}"
             threat = BastionThreat(
@@ -378,7 +397,8 @@ class DetectorEngineAdapter(BaseAdapter):
         # Rank by urgency, then by forecast probability, then severity.
         threats.sort(
             key=lambda t: (t.score.urgency,
-                           t.forecast.exploit_probability if t.forecast else 0.0,
+                           t.forecast.exploit_probability
+                           if t.forecast and t.forecast.exploit_probability is not None else 0.0,
                            t.severity.rank),
             reverse=True,
         )
@@ -398,16 +418,23 @@ class DetectorEngineAdapter(BaseAdapter):
                              "cvss": None, "cwes": [], "products": []}
         return self.build_threats(cves, kev, epss, sectors)
 
-    def forecast_from_path(self, path: Path, sectors: list[str] | None = None) -> list[BastionThreat]:
-        """Build a forecast from a single CVE-feed JSON file (offline)."""
+    def forecast_from_path(
+        self,
+        path: Path,
+        sectors: list[str] | None = None,
+        *,
+        epss_path: Path | None = None,
+        kev_path: Path | None = None,
+    ) -> list[BastionThreat]:
+        """Build a forecast from CVE plus optional current EPSS/KEV exports."""
         path = Path(path)
         data = self._read_json(path)
         cves = self.parse_cve_feed(data)
         # Opportunistically pick up sibling KEV/EPSS fixtures if present.
         kev: dict[str, dict[str, Any]] = {}
         epss: dict[str, float] = {}
-        sib_kev = path.with_name("kev_sample.json")
-        sib_epss = path.with_name("epss_sample.json")
+        sib_kev = Path(kev_path) if kev_path else path.with_name("kev_sample.json")
+        sib_epss = Path(epss_path) if epss_path else path.with_name("epss_sample.json")
         if sib_kev.is_file():
             kev = self.parse_kev_feed(self._read_json(sib_kev))
         if sib_epss.is_file():

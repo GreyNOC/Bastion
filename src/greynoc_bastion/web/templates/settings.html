@@ -29,12 +29,12 @@
 </div>
 
 <div class="panel">
-  <h2>AI assistant</h2>
+  <h2>Offline report helper</h2>
   <div class="status-grid">
-    <div class="status-row"><span class="lab">Assistant</span><span class="val {{ 'state-on' if config.ai_assistant else 'state-off' }}">{{ 'enabled' if config.ai_assistant else 'disabled' }}</span></div>
-    <div class="status-row"><span class="lab">Command execution</span><span class="val {{ 'state-on' if config.ai_command_execution else 'state-off' }}">{{ 'enabled' if config.ai_command_execution else 'disabled' }}</span></div>
-    <div class="status-row"><span class="lab">Cloud allowed</span><span class="val {{ 'state-on' if config.ai_allow_cloud else 'state-off' }}">{{ config.ai_allow_cloud }}</span></div>
-    <div class="status-row"><span class="lab">Endpoint set</span><span class="val">{{ 'yes' if config.ai_endpoint else 'no' }}</span></div>
+    <div class="status-row"><span class="lab">Deterministic formatter</span><span class="val {{ 'state-on' if config.ai_assistant else 'state-off' }}">{{ 'enabled' if config.ai_assistant else 'disabled' }}</span></div>
+    <div class="status-row"><span class="lab">Network/model calls</span><span class="val state-good">not implemented</span></div>
+    <div class="status-row"><span class="lab">Command execution</span><span class="val state-good">not implemented</span></div>
+    <div class="status-row"><span class="lab">Legacy endpoint/cloud flags</span><span class="val">ignored</span></div>
   </div>
 </div>
 

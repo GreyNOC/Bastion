@@ -50,8 +50,8 @@ into Bastion's schemas. Adapters:
 
 - are **clean-room reimplementations + ported data**, not imports of the original
   packages (see [INTEGRATION_NOTES.md](INTEGRATION_NOTES.md) for why);
-- never crash the caller — `BaseAdapter.guard()` converts any exception into a
-  failed `AdapterResult`;
+- are invoked by services through `BaseAdapter.guard()`, which converts adapter
+  exceptions to a failed `AdapterResult`; services surface one controlled error;
 - carry no offensive capability.
 
 | Adapter | Represents | Provides |
@@ -63,7 +63,7 @@ into Bastion's schemas. Adapters:
 | `playbooks_adapter` | Playbooks | Markdown doctrine parsing → `BastionPlaybook` (MITRE, steps, draft detections) |
 | `homeguard_adapter` | HomeGuard | Risky-service knowledge base, plain-English explanations, safe remediation guidance |
 | `port_manager_adapter` | Port-Manager | Passive local socket-table reading, dev-server labeling, exposure classification |
-| `greyiq_adapter` | GreyIQ | Prompt-injection screening + offline explain/summarize/ticket helpers; command execution disabled |
+| `greyiq_adapter` | GreyIQ | Prompt-injection screening + deterministic explain/summarize/ticket helpers; no model/network/command runner |
 
 ### 3. Services (`services/`)
 
@@ -77,7 +77,7 @@ universal `BastionFinding` shape:
 - `EvidenceCenter` — packages findings + evidence into an integrity-checked zip
   bundle; also implements detached bundle signing (keygen/sign/verify,
   shared-key HMAC-SHA256).
-- `AIAssistantService` — safety-first wrapper over the GreyIQ adapter; disabled by
+- `AIAssistantService` — compatibility-named wrapper for the offline report helper; disabled by
   default.
 - `CaseManagementService` — findings → assignable, auditable response work with a
   persistent workqueue and an idempotent triage sweep.

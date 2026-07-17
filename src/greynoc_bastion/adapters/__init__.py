@@ -8,7 +8,7 @@ imported, and no offensive code is pulled in.
 
 from __future__ import annotations
 
-from .base import AdapterResult, BaseAdapter
+from .base import AdapterExecutionError, AdapterResult, BaseAdapter, guarded_call
 from .detections_adapter import DetectionsAdapter
 from .detector_engine_adapter import DetectorEngineAdapter
 from .dmz_adapter import DmzAdapter
@@ -20,7 +20,9 @@ from .port_manager_adapter import PortManagerAdapter
 
 __all__ = [
     "AdapterResult",
+    "AdapterExecutionError",
     "BaseAdapter",
+    "guarded_call",
     "DetectorEngineAdapter",
     "NhiAdapter",
     "DmzAdapter",

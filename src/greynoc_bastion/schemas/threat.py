@@ -40,18 +40,25 @@ class ThreatScore(BastionModel):
 
 @dataclasses.dataclass
 class ThreatForecast(BastionModel):
-    """A time-to-exploitation forecast — the predictive layer of the engine.
+    """EPSS probability plus an explicitly assumed time-to-event estimate.
 
-    ``exploit_probability`` is the modeled chance of exploitation within the
-    horizon; ``horizon_days_p50``/``p90`` are the predicted time-to-exploit
-    (0 when already exploited). ``window`` is a plain label for triage.
+    ``exploit_probability`` is EPSS on its native 30-day horizon. p50/p90 are
+    derived under ``method`` and ``assumptions``; they are not native EPSS
+    outputs. A KEV observation uses horizon zero and no future probability.
     """
 
-    exploit_probability: float = 0.0
+    # EPSS probability on its native 30-day horizon. Timing quantiles below
+    # are derived estimates and their method/assumptions must travel with them.
+    exploit_probability: float | None = None
+    probability_horizon_days: int = 30
     horizon_days_p50: int | None = None
     horizon_days_p90: int | None = None
-    confidence: float = 0.0
+    hazard_rate_daily: float | None = None
+    confidence: float | None = None
+    status: str = "insufficient_data"       # observed|estimated|insufficient_data
+    method: str = "none"
     window: str = "unknown"                 # already_exploited|imminent|near_term|medium_term|low
+    assumptions: list[str] = dataclasses.field(default_factory=list)
     drivers: list[str] = dataclasses.field(default_factory=list)
 
 

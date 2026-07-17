@@ -10,15 +10,17 @@
 {% if safety.warnings %}
   {% for w in safety.warnings %}<div class="banner warn">{{ w }}</div>{% endfor %}
 {% else %}
-  <div class="banner ok">All controls are at their safe defaults.</div>
+  <div class="banner ok">No non-default safety flags are active. Run doctor to verify runtime checks.</div>
 {% endif %}
 
+{% if current_role in ('operator', 'admin') %}
 <div class="actions">
   <form class="inline" method="post" action="{{ url_for('run_doctor') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn">Run doctor</button>
   </form>
 </div>
+{% endif %}
 
 <div class="panel">
   <h2>Controls</h2>
@@ -37,9 +39,9 @@
       <span class="val mono small">{{ safety.report_output_path }}</span></div>
     <div class="status-row"><span class="lab">Secret storage policy</span>
       <span class="val state-good">masked-only</span></div>
-    <div class="status-row"><span class="lab">AI assistant</span>
+    <div class="status-row"><span class="lab">Offline report helper</span>
       <span class="val {{ 'state-on' if safety.ai_assistant_enabled else 'state-off' }}">{{ 'enabled' if safety.ai_assistant_enabled else 'disabled' }}</span></div>
-    <div class="status-row"><span class="lab">AI command execution</span>
+    <div class="status-row"><span class="lab">Legacy command flag (no runner implemented)</span>
       <span class="val {{ 'state-on' if safety.ai_command_execution_enabled else 'state-off' }}">{{ 'ENABLED' if safety.ai_command_execution_enabled else 'disabled' }}</span></div>
     <div class="status-row"><span class="lab">Active local checks</span>
       <span class="val {{ 'state-on' if safety.active_checks_enabled else 'state-off' }}">{{ 'enabled' if safety.active_checks_enabled else 'disabled' }}</span></div>

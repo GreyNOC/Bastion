@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — GreyNOC Bastion{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>{{ title }}</h1><div class="sub">HTTP {{ code }}</div></div>
+</div>
+<div class="banner error">{{ message }}</div>
+<a class="btn ghost" href="{{ url_for('overview') }}">Return to overview</a>
+{% endblock %}

@@ -56,9 +56,9 @@ def test_forecast_horizon_monotonicity():
     a = DetectorEngineAdapter()
     lo = a.score_threat({"description": "x", "cvss": 2.0}, epss=0.02)
     hi = a.score_threat({"description": "internet-facing rce", "cvss": 9.8}, epss=0.9)
-    f_lo = a.forecast_exploit_timing(lo, kev=False)
-    f_hi = a.forecast_exploit_timing(hi, kev=False)
-    assert f_hi.horizon_days_p50 <= f_lo.horizon_days_p50   # more pressure -> shorter horizon
+    f_lo = a.forecast_exploit_timing(lo, kev=False, epss_30d=0.02)
+    f_hi = a.forecast_exploit_timing(hi, kev=False, epss_30d=0.9)
+    assert f_hi.horizon_days_p50 <= f_lo.horizon_days_p50   # higher EPSS -> shorter horizon
     assert f_hi.exploit_probability >= f_lo.exploit_probability
     assert f_hi.horizon_days_p90 >= f_hi.horizon_days_p50
 

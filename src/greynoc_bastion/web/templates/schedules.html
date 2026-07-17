@@ -21,11 +21,13 @@
         <td><b>{{ wf.name }}</b><div class="small muted">{{ wf.description }}</div></td>
         <td class="small mono">{{ wf.steps|join(' → ') }}</td>
         <td>
+          {% if current_role in ('operator', 'admin') %}
           <form class="inline" method="post" action="{{ url_for('run_workflow') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="name" value="{{ wf.name }}">
             <button class="btn small">Run now</button>
           </form>
+          {% else %}<span class="muted small">read only</span>{% endif %}
         </td>
       </tr>
     {% endfor %}
@@ -33,33 +35,40 @@
   </table></div>
 </div>
 
-<div class="panel">
+{% if current_role in ('operator', 'admin') %}<div class="panel">
   <h2>Add a schedule</h2>
   <form class="inline" method="post" action="{{ url_for('schedules_add') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input name="name" placeholder="name" required>
-    <select name="kind">
+    <span class="field"><label for="schedule-name">Name</label>
+      <input id="schedule-name" name="name" placeholder="e.g. Daily report" required></span>
+    <span class="field"><label for="schedule-kind">Kind</label>
+    <select id="schedule-kind" name="kind">
       <option value="report">report</option>
       <option value="workflow">workflow</option>
-    </select>
-    <select name="workflow">
+    </select></span>
+    <span class="field"><label for="schedule-workflow">Workflow (workflow kind only)</label>
+    <select id="schedule-workflow" name="workflow">
       <option value="">(workflow — only for kind=workflow)</option>
       {% for wf in workflows %}<option>{{ wf.name }}</option>{% endfor %}
-    </select>
-    <input name="every" placeholder="every N hours" value="24" style="width:110px">
-    <input name="deliver_to" placeholder="deliver to local dir (optional)" style="min-width:220px">
+    </select></span>
+    <span class="field"><label for="schedule-every">Interval (hours)</label>
+      <input id="schedule-every" name="every" type="number" min="0.25" max="2160" step="0.25" value="24" style="width:110px"></span>
+    <span class="field"><label for="schedule-delivery">Local delivery directory (optional)</label>
+      <input id="schedule-delivery" name="deliver_to" placeholder="inside Bastion home" style="min-width:220px"></span>
     <button class="btn">Add</button>
   </form>
-</div>
+</div>{% endif %}
 
 <div class="panel">
   <h2>Schedules <span class="pill">{{ schedules|length }}</span></h2>
+  {% if current_role in ('operator', 'admin') %}
   <div class="actions">
     <form class="inline" method="post" action="{{ url_for('schedules_run_due') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button class="btn">Run everything due now</button>
     </form>
   </div>
+  {% endif %}
   {% if schedules %}
   <div class="table-scroll"><table>
     <thead><tr><th>Schedule</th><th>Kind</th><th>Interval</th><th>Next run</th><th>Last result</th><th>Actions</th></tr></thead>
@@ -73,6 +82,7 @@
         <td class="small">{{ s.next_run_at }}{% if not s.enabled %} <span class="pill">disabled</span>{% endif %}</td>
         <td class="small">{{ s.last_result or '—' }}</td>
         <td>
+          {% if current_role in ('operator', 'admin') %}
           <form class="inline" method="post" action="{{ url_for('schedules_toggle', schedule_id=s.schedule_id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="enabled" value="{{ '0' if s.enabled else '1' }}">
@@ -82,6 +92,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn small">Remove</button>
           </form>
+          {% else %}<span class="muted small">read only</span>{% endif %}
         </td>
       </tr>
     {% endfor %}

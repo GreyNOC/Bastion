@@ -14,6 +14,7 @@ import json
 import time
 from pathlib import Path
 
+from ..adapters.base import guarded_call
 from ..adapters.detector_engine_adapter import DetectorEngineAdapter
 from ..db import Database
 from ..safety.netguard import evaluate_fetch_target
@@ -23,6 +24,7 @@ from ..schemas import (
     BastionThreat,
     EvidenceKind,
     FindingCategory,
+    stable_correlation_id,
 )
 from ..utils.logging import get_logger
 
@@ -83,8 +85,8 @@ class ThreatForecastService:
             _audit("threat_ingest", f"{provenance}: {url}")
             self.log.info("threat feed ingest (%s): %s", provenance, url)
             data = self._parse_feed(body)
-            cves = self.adapter.parse_cve_feed(data)
-            threats = self.adapter.build_threats(cves, {}, {}, sectors)
+            cves = guarded_call(self.adapter, self.adapter.parse_cve_feed, data)
+            threats = guarded_call(self.adapter, self.adapter.build_threats, cves, {}, {}, sectors)
             if persist and self.db:
                 for t in threats:
                     self.db.save_threat(t)
@@ -143,16 +145,26 @@ class ThreatForecastService:
             raise RuntimeError(f"fetched feed is not valid JSON: {type(exc).__name__}") from None
 
     def demo(self, sectors: list[str] | None = None, persist: bool = False) -> list[BastionThreat]:
-        threats = self.adapter.forecast_from_fixtures(sectors=sectors)
+        threats = guarded_call(self.adapter, self.adapter.forecast_from_fixtures, sectors=sectors)
         if persist and self.db:
             for t in threats:
                 self.db.save_threat(t)
             self.db.save_findings(self.to_findings(threats))
         return threats
 
-    def ingest(self, fixture_path: Path, sectors: list[str] | None = None,
-               persist: bool = True) -> list[BastionThreat]:
-        threats = self.adapter.forecast_from_path(Path(fixture_path), sectors=sectors)
+    def ingest(
+        self,
+        fixture_path: Path,
+        sectors: list[str] | None = None,
+        persist: bool = True,
+        *,
+        epss_path: Path | None = None,
+        kev_path: Path | None = None,
+    ) -> list[BastionThreat]:
+        threats = guarded_call(
+            self.adapter, self.adapter.forecast_from_path, Path(fixture_path), sectors=sectors,
+            epss_path=epss_path, kev_path=kev_path,
+        )
         if persist and self.db:
             for t in threats:
                 self.db.save_threat(t)
@@ -171,6 +183,7 @@ class ThreatForecastService:
             if drivers:
                 why = f"{why} Key drivers: " + "; ".join(drivers) + "."
             findings.append(BastionFinding(
+                correlation_id=stable_correlation_id("fnd", "threat", t.threat_id),
                 title=t.title,
                 severity=t.severity,
                 confidence=t.confidence,

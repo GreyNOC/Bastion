@@ -7,12 +7,15 @@
 </div>
 
 <div class="actions">
+  {% if current_role in ('operator', 'admin') %}
   <form class="inline" method="post" action="{{ url_for('run_identities') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="text" name="path" placeholder="repo/project path to scan"
+    <label class="sr-only" for="identity-path">Repository or project path</label>
+    <input id="identity-path" type="text" name="path" placeholder="repo/project path to scan"
            value="{{ default_path }}">
     <button class="btn">Scan for identities</button>
   </form>
+  {% else %}<span class="pill">Read-only access</span>{% endif %}
 </div>
 
 <div class="banner warn small">

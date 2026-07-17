@@ -29,6 +29,7 @@ from ..schemas import (
     Exposure,
     IdentityType,
     Severity,
+    stable_correlation_id,
 )
 from .base import BaseAdapter
 
@@ -278,6 +279,9 @@ class NhiAdapter(BaseAdapter):
 
         action = self._remediation(itype, provider)
         ident = BastionIdentity(
+            identity_id=stable_correlation_id(
+                "nhi", Path(root).resolve(), rel, line, detector, name, provider or "",
+            ),
             identity_type=itype,
             name=name,
             provider=provider or "",
@@ -298,6 +302,7 @@ class NhiAdapter(BaseAdapter):
             recommended_action=action,
             false_positive_notes="Placeholder/example values are suppressed; verify the value is a live credential before acting.",
         )
+        ident.correlation_id = stable_correlation_id("fnd", "identity", ident.identity_id)
         return ident
 
     # --- structured config parsing ------------------------------------------

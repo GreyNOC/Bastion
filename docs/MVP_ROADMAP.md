@@ -18,8 +18,8 @@ Honest status: what is **delivered**, what is **in progress**, and what is
 
 ## Phase 1A — Engine fidelity (delivered)
 
-- [x] Threat Forecast: real exploit-**timing** forecast (probability + horizon
-      p50/p90 + confidence + window), ATT&CK technique inference, AI-abuse and
+- [x] Threat Forecast: EPSS 30-day probability plus explicitly assumed
+      constant-hazard p50/p90 timing; KEV observed-exploitation status; ATT&CK inference, AI-abuse and
       post-quantum (HNDL) dimensions.
 - [x] STIX 2.1 bundle export and ATT&CK Navigator layer export.
 - [x] Identity Blast Radius: structural MCP/Kubernetes-Secret parsing, OWASP NHI
@@ -35,8 +35,8 @@ Honest status: what is **delivered**, what is **in progress**, and what is
 
 - [x] GitHub Actions CI across Python 3.10 / 3.11 / 3.12.
 - [x] Dev tooling + config: ruff, mypy, bandit, pip-audit.
-- [x] Dashboard **fail-closed binding** (loopback only unless
-      `BASTION_ALLOW_REMOTE_DASHBOARD=1` **and** `BASTION_DASHBOARD_TOKEN`).
+- [x] Built-in dashboard server **fail-closed binding** (strictly loopback only;
+      remote deployment requires a production HTTPS WSGI server).
 - [x] Dashboard **token auth** (Bearer) + **CSRF** on POST actions.
 - [x] CLI active-check gating (`--active` requires `BASTION_ACTIVE_CHECKS=true`)
       with a bounded, loopback-only liveness confirmation.
@@ -97,7 +97,7 @@ Phase 1B is complete.
 
 - [x] **Signed evidence bundles**: `bastion evidence keygen | sign | verify`.
       Detached HMAC-SHA256 signature over the whole bundle file, local key
-      (0600, rotation is explicit), non-reversible key ids, constant-time
+      (owner-only POSIX mode/Windows ACL; rotation is explicit), non-reversible key ids, constant-time
       verification. Trust model stated honestly: shared-key tamper evidence
       for air-gapped transfer — not third-party non-repudiation. An asymmetric
       (Ed25519 / PQ-hybrid) scheme stays planned; it needs a crypto dependency

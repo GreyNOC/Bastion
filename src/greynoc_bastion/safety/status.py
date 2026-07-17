@@ -52,7 +52,7 @@ class SafetyStatus:
     @property
     def posture(self) -> str:
         """Overall posture label for the status badge."""
-        if not self.loopback_only or self.ai_command_execution_enabled or self.ai_allow_cloud:
+        if not self.loopback_only:
             return "elevated"
         if self.live_fetch_enabled or self.active_checks_enabled or self.ai_assistant_enabled:
             return "attention"
@@ -84,16 +84,16 @@ def build_safety_status(
             "Active local checks are ENABLED (private/loopback only, bounded, logged)."
         )
     if config.ai_assistant:
-        warnings.append("AI assistant is ENABLED (explain/summarize only unless command execution is also on).")
+        warnings.append("Offline report helper is ENABLED (deterministic formatting; no model calls).")
     if config.ai_command_execution:
         warnings.append(
-            "AI assistant COMMAND EXECUTION is ENABLED. This is a privileged, logged, "
-            "workspace-confined capability — verify this is intended."
+            "Legacy AI command-execution flag is set, but no command runner is implemented; "
+            "requests are refused."
         )
-    if config.ai_allow_cloud:
+    if config.ai_allow_cloud or config.ai_endpoint:
         warnings.append(
-            "AI cloud endpoints are ALLOWED. Findings/reports may leave this machine if the "
-            "assistant is used. Disable BASTION_AI_ALLOW_CLOUD to keep everything local."
+            "Legacy AI endpoint/cloud settings are present but ignored; this build has no "
+            "model or network integration."
         )
 
     return SafetyStatus(

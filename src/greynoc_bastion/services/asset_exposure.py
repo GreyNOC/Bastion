@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..adapters.base import guarded_call
 from ..adapters.homeguard_adapter import HomeGuardAdapter
 from ..adapters.port_manager_adapter import PortManagerAdapter, is_dev_server, label_service
 from ..db import Database
@@ -24,6 +25,7 @@ from ..schemas import (
     Exposure,
     FindingCategory,
     ValidationStatus,
+    stable_correlation_id,
 )
 from ..utils.logging import get_logger
 
@@ -115,13 +117,17 @@ class AssetExposureService:
         baseline = set(baseline_ports or [])
         if observations is None:
             # Reading the OS socket table is safe local introspection.
-            observations = self.port_manager.list_local_listeners(active=True)
+            observations = guarded_call(
+                self.port_manager, self.port_manager.list_local_listeners, active=True,
+            )
 
         # Mark baseline membership.
         for obs in observations:
             obs.setdefault("in_baseline", obs.get("port") in baseline)
 
-        assets = self.homeguard.review_observations(observations)
+        assets = guarded_call(
+            self.homeguard, self.homeguard.review_observations, observations,
+        )
 
         # Active mode: bounded, loopback-only liveness confirmation.
         if active:
@@ -181,6 +187,7 @@ class AssetExposureService:
                 location=f"{a.host}:{a.port}",
             )]
             findings.append(BastionFinding(
+                correlation_id=stable_correlation_id("fnd", "asset", a.asset_id),
                 title=f"{a.service_name} listening on {a.host}:{a.port}",
                 severity=a.severity,
                 confidence=a.confidence,

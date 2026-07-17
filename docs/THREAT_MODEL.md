@@ -21,13 +21,14 @@ untrusted users by default.
 ## Trust boundaries
 
 - **Scanned content is untrusted data.** Repo files, configs, and feed records
-  are treated as data, never instructions. The AI assistant screens for
+  are treated as data, never instructions. The offline report helper screens for
   prompt-injection and wraps untrusted content; rule regexes pass a ReDoS guard.
 - **The network is off by default.** Live fetching is disabled; when enabled it
   is HTTPS-only, allowlisted, size/timeout-capped, and refuses private/loopback/
   CGNAT/test-net hosts (SSRF).
-- **The dashboard is loopback-only by default.** Remote exposure fails closed
-  unless explicitly overridden *and* protected by a token; POST actions are
+- **The built-in dashboard server is loopback-only.** Non-loopback binds are
+  refused. Remote deployments must put `create_app()` behind a production HTTPS
+  WSGI server with authentication and secure cookies; POST actions are
   CSRF-protected.
 
 ## Threats considered and mitigations
@@ -39,7 +40,7 @@ untrusted users by default.
 | SSRF via a fetch/redirect | Fail-closed netguard: HTTPS + allowlist + private-host block (with DNS resolution) + per-redirect re-check | `safety/netguard.py`, `safety/fetcher.py` |
 | Unsafe user detection rule (ReDoS) | Custom rules are linted + ReDoS-screened on load; unsafe ones rejected | `adapters/dmz_adapter.py` |
 | ReDoS via untrusted rule regex | Screen shapes + nested-quantifier detection before compile | `utils/redos.py` |
-| Remote dashboard exposure | Refuse non-loopback bind without override + token; Bearer auth; CSRF on POST | `web/server.py` |
+| Remote dashboard exposure | Built-in server refuses every non-loopback bind; production remote deployments require HTTPS WSGI; Bearer auth; CSRF on POST | `web/server.py` |
 | CSV/formula injection in reports | Neutralize leading `= + - @` cells | `services/report_center.py` |
 | Zip-slip via evidence bundle | Sanitize archive entry names | `services/evidence_center.py` |
 | Unbounded active checks | Passive by default; active is opt-in, loopback-only, bounded, logged | `services/asset_exposure.py` |

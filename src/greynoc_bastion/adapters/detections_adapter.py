@@ -31,29 +31,35 @@ class DetectionsAdapter(BaseAdapter):
     source_repo = "GreyNOC/Detections"
     name = "detections"
 
-    def __init__(self, fixtures_dir: Path | None = None) -> None:
+    def __init__(
+        self, fixtures_dir: Path | None = None, dmz: DmzAdapter | None = None,
+    ) -> None:
         super().__init__()
-        self._dmz = DmzAdapter(fixtures_dir)
+        self._dmz = dmz or DmzAdapter(fixtures_dir)
 
     # --- canonical validated pack -------------------------------------------
-    def load_validated_pack(self) -> list[BastionDetection]:
+    def load_validated_pack(
+        self,
+        *,
+        results: list[BastionValidationResult] | None = None,
+        rules: list[dict] | None = None,
+    ) -> list[BastionDetection]:
         """Load the GNOC rule pack and mark it validated *after* it passes.
 
         We do not trust the pack blindly: each rule is run against its bundled
         test, and only rules whose test passes are marked VALIDATED. Rules that
         fail their own test are surfaced as NEEDS_TUNING.
         """
-        results = {r.detection_id: r for r in self._dmz.validate_all_rules()}
+        result_by_id = {
+            r.detection_id: r
+            for r in (results if results is not None else self._dmz.validate_all_rules())
+        }
         detections: list[BastionDetection] = []
-        for rule in self._dmz.load_rules():
+        for rule in (rules if rules is not None else self._dmz.load_rules()):
             det = self._dmz.rule_to_detection(rule)
-            res = results.get(det.detection_id)
-            if res and res.passed:
-                det.status = ValidationStatus.VALIDATED
-                det.metadata["last_validation"] = res.result_id
-            elif res:
-                det.status = ValidationStatus.NEEDS_TUNING
-                det.metadata["last_validation"] = res.result_id
+            res = result_by_id.get(det.detection_id)
+            if res:
+                det = self.promote(det, res)
             else:
                 det.status = ValidationStatus.DRAFT
             detections.append(det)

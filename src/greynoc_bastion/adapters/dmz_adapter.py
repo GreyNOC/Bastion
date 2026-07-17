@@ -26,6 +26,7 @@ from ..schemas import (
     BastionValidationResult,
     Severity,
     ValidationStatus,
+    stable_correlation_id,
 )
 from ..utils.logging import get_logger
 from ..utils.redos import is_safe_regex, safe_compile
@@ -126,17 +127,33 @@ class DmzAdapter(BaseAdapter):
     source_repo = "GreyNOC/DMZ"
     name = "dmz"
 
-    def __init__(self, fixtures_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        fixtures_dir: Path | None = None,
+        custom_rules_dir: Path | None = None,
+    ) -> None:
         super().__init__()
         self.fixtures_root = Path(fixtures_dir) if fixtures_dir else (
             Path(__file__).resolve().parents[1] / "fixtures"
         )
+        self.custom_rules_dir = Path(custom_rules_dir) if custom_rules_dir else None
 
     # --- loading -------------------------------------------------------------
     def load_rules(self, rules_dir: Path | None = None) -> list[dict[str, Any]]:
-        rules_dir = Path(rules_dir) if rules_dir else self.fixtures_root / "detections" / "rules"
+        """Load an explicit directory, or the bundled plus accepted custom pack."""
+        if rules_dir is not None:
+            return self._load_rule_dir(Path(rules_dir))
+
+        rules = self._load_rule_dir(self.fixtures_root / "detections" / "rules")
+        if self.custom_rules_dir:
+            rules.extend(self.load_custom_rules(self.custom_rules_dir)["accepted"])
+        return rules
+
+    def _load_rule_dir(self, rules_dir: Path) -> list[dict[str, Any]]:
         rules: list[dict[str, Any]] = []
         for f in sorted(rules_dir.glob("*.json")):
+            if f.name.endswith(".test.json"):
+                continue
             try:
                 rules.append(json.loads(f.read_text(encoding="utf-8")))
             except (OSError, json.JSONDecodeError) as exc:
@@ -167,6 +184,10 @@ class DmzAdapter(BaseAdapter):
             logic_language="gnoc-match",
             status=ValidationStatus.DRAFT,
             references=[str(rule["runbook"])] if rule.get("runbook") else [],
+            metadata={
+                "origin": rule.get("_source", "bundled"),
+                "source_file": rule.get("_source_file", ""),
+            },
         )
 
     # --- matching ------------------------------------------------------------
@@ -238,6 +259,9 @@ class DmzAdapter(BaseAdapter):
         false_pos = len(fp_alerts)
 
         result = BastionValidationResult(
+            result_id=stable_correlation_id(
+                "val", rule.get("id", ""), f"rule-test:{rule.get('id', '')}",
+            ),
             detection_id=rule.get("id", ""),
             scenario=f"rule-test:{rule.get('id', '')}",
             expected_alerts=1 if tp_events else 0,
@@ -251,24 +275,57 @@ class DmzAdapter(BaseAdapter):
                 f"TP set produced {len(tp_alerts)} alert(s); "
                 f"TN set produced {len(fp_alerts)} alert(s) (expected 0)."
             ),
+            correlation_id=stable_correlation_id(
+                "fnd", "validation", rule.get("id", ""),
+                f"rule-test:{rule.get('id', '')}",
+            ),
         )
         return result.compute_metrics()
 
     def validate_all_rules(self) -> list[BastionValidationResult]:
-        """Validate every bundled rule against its bundled test."""
+        """Validate every active bundled/custom rule against its test."""
         results: list[BastionValidationResult] = []
         tests_dir = self.fixtures_root / "detections" / "tests"
         for rule in self.load_rules():
             rid = rule.get("id")
-            test_path = tests_dir / f"{rid}.json"
+            if rule.get("_source") == "custom":
+                source_path = Path(str(rule.get("_source_file", "")))
+                root = source_path.parent
+                candidates = [root / "tests" / f"{rid}.json", root / f"{rid}.test.json"]
+                test_path = next((p for p in candidates if p.is_file()), candidates[0])
+            else:
+                test_path = tests_dir / f"{rid}.json"
             if not test_path.is_file():
+                results.append(self._missing_rule_test(rule, test_path))
                 continue
             try:
                 test = json.loads(test_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
+                results.append(self._missing_rule_test(rule, test_path, unreadable=True))
                 continue
             results.append(self.run_rule_test(rule, test))
         return results
+
+    @staticmethod
+    def _missing_rule_test(
+        rule: dict[str, Any], test_path: Path, *, unreadable: bool = False,
+    ) -> BastionValidationResult:
+        rid = str(rule.get("id", ""))
+        scenario = f"rule-test:{rid}"
+        reason = "unreadable" if unreadable else "missing"
+        return BastionValidationResult(
+            result_id=stable_correlation_id("val", rid, scenario),
+            detection_id=rid,
+            scenario=scenario,
+            expected_alerts=1,
+            actual_alerts=0,
+            false_negatives=1,
+            verdict=ValidationStatus.FAILED,
+            passed=False,
+            notes=f"Validation test is {reason}: {test_path}",
+            missed_events=[{"note": f"validation test is {reason}"}],
+            correlation_id=stable_correlation_id("fnd", "validation", rid, scenario),
+        ).compute_metrics()
 
     def validate_scenario(self, scenario_path: Path) -> BastionValidationResult:
         """Replay a scenario's telemetry against the rule pack and compare.
@@ -295,6 +352,10 @@ class DmzAdapter(BaseAdapter):
         fp = len(fired - expected)
 
         result = BastionValidationResult(
+            result_id=stable_correlation_id(
+                "val", ",".join(sorted(expected)) or "(none)",
+                scenario.get("id", scenario_path.stem),
+            ),
             detection_id=",".join(sorted(expected)) or "(none)",
             scenario=scenario.get("id", scenario_path.stem),
             expected_alerts=len(expected),
@@ -307,6 +368,10 @@ class DmzAdapter(BaseAdapter):
             notes=(
                 f"Expected rules: {sorted(expected) or '[]'}; "
                 f"fired: {sorted(fired) or '[]'}."
+            ),
+            correlation_id=stable_correlation_id(
+                "fnd", "validation", ",".join(sorted(expected)) or "(none)",
+                scenario.get("id", scenario_path.stem),
             ),
         )
         return result.compute_metrics()
@@ -407,9 +472,15 @@ class DmzAdapter(BaseAdapter):
         # A custom rule must never reuse a bundled (validated) rule's id — that
         # would let an unvalidated DRAFT overwrite a validated detection in the
         # store (INSERT OR REPLACE by id). Reserve the bundled ids.
-        bundled_ids = {r.get("id") for r in self.load_rules() if r.get("id")}
+        bundled_ids = {
+            r.get("id")
+            for r in self._load_rule_dir(self.fixtures_root / "detections" / "rules")
+            if r.get("id")
+        }
         seen_ids: set[str] = set()
         for f in sorted(rules_dir.glob("*.json")):
+            if f.name.endswith(".test.json"):
+                continue
             try:
                 if f.stat().st_size > 512 * 1024:  # a detection rule is small
                     rejected.append({"file": f.name, "id": None, "errors": ["file too large (>512KB)"]})
@@ -436,6 +507,7 @@ class DmzAdapter(BaseAdapter):
             if rid:
                 seen_ids.add(rid)
             rule["_source"] = "custom"
+            rule["_source_file"] = str(f.resolve())
             accepted.append(rule)
 
         return {

@@ -184,6 +184,34 @@ def test_viewer_cannot_post_operator_can(app):
                                             "password": PW}).status_code == 403
 
 
+def test_viewer_pages_hide_mutating_controls_and_render_friendly_403(app):
+    app.operators.add("admin1", PW, "admin")
+    app.operators.add("viewer1", PW, "viewer")
+    client = create_app(app).test_client()
+    _login(client, "viewer1", PW)
+
+    cases_html = client.get("/cases").get_data(as_text=True)
+    assert "/cases/open" not in cases_html
+    assert "/cases/triage" not in cases_html
+    assert "Open a case" not in cases_html
+
+    schedules_html = client.get("/schedules").get_data(as_text=True)
+    assert "/schedules/add" not in schedules_html
+    assert "/schedules/run-due" not in schedules_html
+    assert "/run/workflow" not in schedules_html
+    assert "Add a schedule" not in schedules_html
+    assert "read only" in schedules_html
+
+    with client.session_transaction() as sess:
+        csrf = sess["_csrf"]
+    denied = client.post(
+        "/cases/open",
+        data={"csrf_token": csrf, "title": "must not be created"},
+    )
+    assert denied.status_code == 403
+    assert "Action not allowed" in denied.get_data(as_text=True)
+
+
 def test_viewer_can_always_log_out(app):
     # Regression: the RBAC floor must not trap a viewer in-session. Logout is a
     # POST but any authenticated role must be able to end its own session.
@@ -253,10 +281,10 @@ def test_static_token_still_works_but_is_not_admin(app):
                        data={"username": "x", "password": PW}).status_code == 403
 
 
-def test_combined_token_and_accounts_allows_remote_login(app):
-    # Regression: with BOTH a dashboard token AND operator accounts (the remote
-    # multi-operator scenario — remote bind requires a token), form login must
-    # still work. The token gate must not hard-401 the login page or a
+def test_combined_token_and_accounts_allows_form_login(app):
+    # Regression: with both a dashboard token and operator accounts (for
+    # example, behind a production HTTPS proxy), form login must still work.
+    # The token gate must not hard-401 the login page or a
     # logged-in session that lacks the token.
     app.operators.add("alice", PW, "admin")
     app.config.dashboard_token = "tkn-abc"

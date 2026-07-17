@@ -2,15 +2,14 @@
 
 A Flask app bound to loopback (``127.0.0.1``) by default. Read (GET) routes
 render stored data; a small set of POST actions run a module on demand (all
-local, all safe, no destructive operations). ``/healthz`` is a JSON health route.
+local and non-destructive). ``/healthz`` is a JSON health route.
 
 Safety posture of the dashboard:
-  * **Loopback only by default.** Binding to a non-loopback host is refused
-    unless ``BASTION_ALLOW_REMOTE_DASHBOARD=1`` *and* ``BASTION_DASHBOARD_TOKEN``
-    are both set (:func:`ensure_bind_allowed`).
+  * **Loopback-only built-in server.** Non-loopback binds are refused. Deploy
+    ``create_app`` behind a production HTTPS WSGI server for remote access.
   * **Token auth.** If ``BASTION_DASHBOARD_TOKEN`` is set, every request (except
-    the health check) must carry ``Authorization: Bearer <token>`` (or, for
-    local development, ``?token=<token>``).
+    the health check) must carry ``Authorization: Bearer <token>``. A query-token
+    session bootstrap is accepted only from a loopback client.
   * **Operator login + RBAC.** With no operator accounts, the dashboard runs in
     the original single-operator local-trust mode. Once accounts exist
     (``bastion users add``), every request requires a login; roles gate what a
@@ -42,6 +41,7 @@ from flask import (
     url_for,
 )
 
+from ..adapters import AdapterExecutionError
 from ..app import BastionApp
 from ..auth import AuthError
 from ..schemas import OperatorRole, ReportFormat
@@ -63,24 +63,16 @@ _THROTTLE_MAX_KEYS = 4096
 def ensure_bind_allowed(host: str, *, allow_remote: bool = False, has_token: bool = False) -> None:
     """Fail closed before binding the dashboard to a non-loopback host.
 
-    Raises :class:`SystemExit` with a clear message if a remote bind is
-    requested without the explicit override (``allow_remote``) and an auth token
-    (``has_token``). Loopback binds always pass. The two flags come from the
-    resolved config so ``.env`` values are honored, not only real env vars.
+    Loopback binds pass. Every non-loopback bind raises :class:`SystemExit`;
+    legacy override/token arguments are retained only for API compatibility.
     """
     if host in _LOOPBACK_HOSTS:
         return
-    if not allow_remote:
-        raise SystemExit(
-            f"Refusing to bind the dashboard to non-loopback host '{host}'. "
-            "The dashboard is loopback-only by default. To expose it deliberately, set "
-            "BASTION_ALLOW_REMOTE_DASHBOARD=1 AND BASTION_DASHBOARD_TOKEN=<strong-token>."
-        )
-    if not has_token:
-        raise SystemExit(
-            f"Refusing remote dashboard bind on '{host}' without BASTION_DASHBOARD_TOKEN set — "
-            "that would expose an unauthenticated dashboard. Set a strong token and retry."
-        )
+    raise SystemExit(
+        f"Refusing to bind the built-in dashboard server to non-loopback host '{host}'. "
+        "For remote access, deploy create_app() behind a production HTTPS WSGI server, "
+        "enable BASTION_SECURE_COOKIES, and configure operator authentication."
+    )
 
 
 def _token_fingerprint(token: str) -> str:
@@ -91,7 +83,7 @@ def _token_fingerprint(token: str) -> str:
 def _request_authed(req, token: str) -> bool:
     """True if the request is authorized for the token-protected dashboard.
 
-    Accepts an ``Authorization: Bearer`` header, a ``?token=`` query (which then
+    Accepts an ``Authorization: Bearer`` header, a loopback-only ``?token=`` query (which then
     bootstraps an authenticated session so subsequent navigation/POSTs work
     without re-supplying the token), or a previously-established session. A
     bootstrapped session is bound to a fingerprint of the CURRENT token, so
@@ -103,7 +95,8 @@ def _request_authed(req, token: str) -> bool:
     if header.startswith("Bearer ") and hmac.compare_digest(header[7:], token):
         return True
     query = req.args.get("token", "")
-    if query and hmac.compare_digest(query, token):
+    if (req.remote_addr in _LOOPBACK_HOSTS
+            and query and hmac.compare_digest(query, token)):
         session["_token_fp"] = _token_fingerprint(token)  # bootstrap, token-bound
         return True
     fp = session.get("_token_fp")
@@ -178,6 +171,7 @@ def create_app(bastion: BastionApp) -> Flask:
     app.config["SECRET_KEY"] = bastion.config.web_secret or secrets.token_hex(16)
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"] = bool(bastion.config.secure_cookies)
 
     # Optional token auth, resolved from config (so a token in .env is honored).
     # When set, required on every request except /healthz.
@@ -210,7 +204,7 @@ def create_app(bastion: BastionApp) -> Flask:
         return OperatorRole.coerce(record.get("role"), OperatorRole.VIEWER)
 
     def _effective_role() -> OperatorRole | None:
-        """Role for this request: operator session > bearer/query token > legacy.
+        """Role for this request: operator session > bearer/local query token > legacy.
 
         The static token authenticates the *machine channel* (remote exposure,
         API clients) and maps to OPERATOR; account management always needs a
@@ -260,7 +254,7 @@ def create_app(bastion: BastionApp) -> Flask:
             form_token = request.form.get("csrf_token", "")
             sess_token = session.get("_csrf", "")
             if not sess_token or not hmac.compare_digest(str(form_token), str(sess_token)):
-                return Response("invalid or missing CSRF token\n", 403)
+                abort(403, description="Invalid or missing CSRF token.")
         # 3) Operator login (only once accounts exist). The login page itself
         #    stays reachable, or nobody could ever log in.
         if request.endpoint in ("login", "login_post"):
@@ -279,7 +273,7 @@ def create_app(bastion: BastionApp) -> Flask:
             needed = OperatorRole.ADMIN if request.path.startswith("/users") else OperatorRole.OPERATOR
             current = _effective_role()
             if current is None or not current.allows(needed):
-                return Response("forbidden: your role does not allow this action\n", 403)
+                abort(403, description="Your role does not allow this action.")
         return None
 
     def ctx():
@@ -291,6 +285,22 @@ def create_app(bastion: BastionApp) -> Flask:
             "current_role": (_effective_role().value if _effective_role() else None),
             "login_mode": _login_required(),
         }
+
+    @app.errorhandler(403)
+    def forbidden(error):
+        return render_template(
+            "error.html", active_page=None, code=403, title="Action not allowed",
+            message=getattr(error, "description", "Your role does not allow this action."),
+            **ctx(),
+        ), 403
+
+    @app.errorhandler(AdapterExecutionError)
+    def adapter_failed(error):
+        bastion.log.warning("dashboard adapter operation failed: %s", error)
+        return render_template(
+            "error.html", active_page=None, code=503, title="Module unavailable",
+            message=str(error), **ctx(),
+        ), 503
 
     # --- health --------------------------------------------------------------
     @app.get("/healthz")
@@ -326,7 +336,7 @@ def create_app(bastion: BastionApp) -> Flask:
         role = bastion.operators.verify(username, password)
         if role is None:
             throttle.record_failure(key)
-            flash("Login failed.")
+            flash("Login failed.", "error")
             return redirect(url_for("login"))
         throttle.reset(key)
         session["_user"] = username
@@ -347,8 +357,7 @@ def create_app(bastion: BastionApp) -> Flask:
     @app.get("/")
     def overview():
         status = bastion.status()
-        findings = bastion.db.list_findings(limit=10)
-        findings.sort(key=lambda f: f.priority_score, reverse=True)
+        findings = bastion.db.list_top_findings(limit=10)
         return render_template(
             "overview.html", active_page="overview",
             status=status, counts=status["counts"], top_findings=findings[:10],
@@ -369,7 +378,7 @@ def create_app(bastion: BastionApp) -> Flask:
     @app.get("/detections")
     def detections():
         results = bastion.db.list_validations(limit=500)
-        pack = bastion.detection.detections.load_validated_pack()
+        pack = bastion.db.list_detections(limit=500)
         coverage = bastion.detection.detections.coverage_summary(pack)
         return render_template("detections.html", active_page="detections",
                                results=results, coverage=coverage, **ctx())
@@ -443,14 +452,14 @@ def create_app(bastion: BastionApp) -> Flask:
         sample = Path(__file__).resolve().parents[1] / "fixtures" / "sample_project"
         bastion.identity.scan(sample, persist=True)
         bastion.assets.scan_local(passive=True, persist=True)
-        flash("Ran all modules against offline fixtures and local passive review.")
+        flash("Loaded sample forecast, detections, identities, and local passive assets.", "success")
         return redirect(url_for("overview"))
 
     @app.post("/run/forecast")
     def run_forecast():
         sectors = [s.strip() for s in (request.form.get("sectors") or "").split(",") if s.strip()]
         threats = bastion.threat_forecast.demo(sectors=sectors or None, persist=True)
-        flash(f"Threat forecast complete — {len(threats)} threats ranked.")
+        flash(f"Threat forecast complete — {len(threats)} threats ranked.", "success")
         return redirect(url_for("forecast"))
 
     @app.post("/run/identities")
@@ -458,23 +467,23 @@ def create_app(bastion: BastionApp) -> Flask:
         path = (request.form.get("path") or "").strip()
         target = Path(path)
         if not path or not target.exists():
-            flash("Path not found; scan skipped.")
+            flash("Path not found; scan skipped.", "error")
             return redirect(url_for("identities"))
         ids = bastion.identity.scan(target, persist=True)
-        flash(f"Identity scan complete — {len(ids)} non-human identities (secrets masked).")
+        flash(f"Identity scan complete — {len(ids)} non-human identities (secrets masked).", "success")
         return redirect(url_for("identities"))
 
     @app.post("/run/detections")
     def run_detections():
         results = bastion.detection.validate_all(persist=True)
         passed = sum(1 for r in results if r.passed)
-        flash(f"Validated rule pack — {passed}/{len(results)} rules passed.")
+        flash(f"Validated active rule pack — {passed}/{len(results)} rules passed.", "success")
         return redirect(url_for("detections"))
 
     @app.post("/run/assets")
     def run_assets():
         assets_list = bastion.assets.scan_local(passive=True, persist=True)
-        flash(f"Local passive review complete — {len(assets_list)} services reviewed.")
+        flash(f"Local passive review complete — {len(assets_list)} services reviewed.", "success")
         return redirect(url_for("assets"))
 
     @app.post("/run/report")
@@ -484,13 +493,13 @@ def create_app(bastion: BastionApp) -> Flask:
                      ReportFormat.CSV, ReportFormat.SARIF, ReportFormat.PDF],
             include_bundle=True,
         )
-        flash(f"Report built ({report.summary.total_findings} findings) → {bastion.config.report_dir}")
+        flash(f"Report built ({report.summary.total_findings} findings) → {bastion.config.report_dir}", "success")
         return redirect(url_for("reports"))
 
     @app.post("/run/doctor")
     def run_doctor():
         result = bastion.doctor()
-        flash(f"Doctor result: {result['result'].upper()}")
+        flash(f"Doctor result: {result['result'].upper()}", "success" if result["ok"] else "warning")
         return redirect(url_for("safety"))
 
     @app.post("/run/workflow")
@@ -499,10 +508,10 @@ def create_app(bastion: BastionApp) -> Flask:
         try:
             result = bastion.orchestrator.run(name, actor=_actor())
         except ValueError as exc:
-            flash(f"Workflow refused: {exc}")
+            flash(f"Workflow refused: {exc}", "error")
             return redirect(url_for("schedules"))
         ok = sum(1 for s in result["steps"] if s["ok"])
-        flash(f"Workflow '{name}': {ok}/{len(result['steps'])} steps ok.")
+        flash(f"Workflow '{name}': {ok}/{len(result['steps'])} steps ok.", "success" if result["ok"] else "warning")
         return redirect(url_for("schedules"))
 
     # --- case actions -----------------------------------------------------------
@@ -514,51 +523,51 @@ def create_app(bastion: BastionApp) -> Flask:
                 severity=request.form.get("severity") or None,
                 assignee=request.form.get("assignee", ""),
                 actor=_actor())
-            flash(f"Opened {case.case_id}.")
+            flash(f"Opened {case.case_id}.", "success")
         except CaseError as exc:
-            flash(f"Case refused: {exc}")
+            flash(f"Case refused: {exc}", "error")
         return redirect(url_for("cases"))
 
     @app.post("/cases/triage")
     def cases_triage():
         opened = bastion.cases.open_from_findings(actor=_actor())
-        flash(f"Triage sweep opened {len(opened)} case(s) for untracked high+ findings.")
+        flash(f"Triage sweep opened {len(opened)} case(s) for untracked high+ findings.", "success")
         return redirect(url_for("cases"))
 
     @app.post("/cases/<case_id>/assign")
     def cases_assign(case_id):
         try:
             case = bastion.cases.assign(case_id, request.form.get("assignee", ""), actor=_actor())
-            flash(f"{case.case_id} → {case.assignee or '(unassigned)'}.")
+            flash(f"{case.case_id} → {case.assignee or '(unassigned)'}.", "success")
         except CaseError as exc:
-            flash(f"Assign refused: {exc}")
+            flash(f"Assign refused: {exc}", "error")
         return redirect(url_for("cases"))
 
     @app.post("/cases/<case_id>/note")
     def cases_note(case_id):
         try:
             bastion.cases.add_note(case_id, request.form.get("text", ""), actor=_actor())
-            flash("Note added.")
+            flash("Note added.", "success")
         except CaseError as exc:
-            flash(f"Note refused: {exc}")
+            flash(f"Note refused: {exc}", "error")
         return redirect(url_for("cases"))
 
     @app.post("/cases/<case_id>/close")
     def cases_close(case_id):
         try:
             bastion.cases.close(case_id, reason=request.form.get("reason", "resolved"), actor=_actor())
-            flash(f"Case {case_id} closed.")
+            flash(f"Case {case_id} closed.", "success")
         except CaseError as exc:
-            flash(f"Close refused: {exc}")
+            flash(f"Close refused: {exc}", "error")
         return redirect(url_for("cases"))
 
     @app.post("/cases/<case_id>/reopen")
     def cases_reopen(case_id):
         try:
             bastion.cases.reopen(case_id, actor=_actor())
-            flash(f"Case {case_id} reopened.")
+            flash(f"Case {case_id} reopened.", "success")
         except CaseError as exc:
-            flash(f"Reopen refused: {exc}")
+            flash(f"Reopen refused: {exc}", "error")
         return redirect(url_for("cases"))
 
     # --- schedule actions ---------------------------------------------------------
@@ -575,9 +584,9 @@ def create_app(bastion: BastionApp) -> Flask:
                 # A web operator must not deliver report files outside the
                 # Bastion home; the trusted local CLI has no such limit.
                 restrict_base=bastion.config.home)
-            flash(f"Schedule {record['schedule_id']} added (run it via `bastion schedule run-due`).")
+            flash(f"Schedule {record['schedule_id']} added (run it via `bastion schedule run-due`).", "success")
         except (ScheduleError, ValueError) as exc:
-            flash(f"Schedule refused: {exc}")
+            flash(f"Schedule refused: {exc}", "error")
         return redirect(url_for("schedules"))
 
     @app.post("/schedules/<schedule_id>/toggle")
@@ -585,22 +594,24 @@ def create_app(bastion: BastionApp) -> Flask:
         try:
             record = bastion.scheduler.set_enabled(
                 schedule_id, request.form.get("enabled") == "1", actor=_actor())
-            flash(f"Schedule {'enabled' if record['enabled'] else 'disabled'}.")
+            flash(f"Schedule {'enabled' if record['enabled'] else 'disabled'}.", "success")
         except ScheduleError as exc:
-            flash(f"Toggle refused: {exc}")
+            flash(f"Toggle refused: {exc}", "error")
         return redirect(url_for("schedules"))
 
     @app.post("/schedules/<schedule_id>/remove")
     def schedules_remove(schedule_id):
         removed = bastion.scheduler.remove(schedule_id, actor=_actor())
-        flash("Schedule removed." if removed else "Nothing removed (unknown id).")
+        flash("Schedule removed." if removed else "Nothing removed (unknown id).",
+              "success" if removed else "warning")
         return redirect(url_for("schedules"))
 
     @app.post("/schedules/run-due")
     def schedules_run_due():
         outcomes = bastion.scheduler.run_due(actor=_actor())
         ok = sum(1 for o in outcomes if o["ok"])
-        flash(f"Ran {len(outcomes)} due schedule(s); {ok} ok." if outcomes else "Nothing due.")
+        flash(f"Ran {len(outcomes)} due schedule(s); {ok} ok." if outcomes else "Nothing due.",
+              "success" if outcomes and ok == len(outcomes) else "warning")
         return redirect(url_for("schedules"))
 
     # --- account management (admin) --------------------------------------------
@@ -612,18 +623,18 @@ def create_app(bastion: BastionApp) -> Flask:
                 request.form.get("password", ""),
                 request.form.get("role", "operator"),
                 actor=_actor())
-            flash(f"Operator '{info['username']}' added ({info['role']}).")
+            flash(f"Operator '{info['username']}' added ({info['role']}).", "success")
         except AuthError as exc:
-            flash(f"Refused: {exc}")
+            flash(f"Refused: {exc}", "error")
         return redirect(url_for("users"))
 
     @app.post("/users/<username>/role")
     def users_role(username):
         try:
             bastion.operators.set_role(username, request.form.get("role", ""), actor=_actor())
-            flash(f"Role updated for '{username}'.")
+            flash(f"Role updated for '{username}'.", "success")
         except AuthError as exc:
-            flash(f"Refused: {exc}")
+            flash(f"Refused: {exc}", "error")
         return redirect(url_for("users"))
 
     @app.post("/users/<username>/state")
@@ -631,34 +642,33 @@ def create_app(bastion: BastionApp) -> Flask:
         try:
             disable = request.form.get("disabled") == "1"
             bastion.operators.set_disabled(username, disable, actor=_actor())
-            flash(f"Operator '{username}' {'disabled' if disable else 'enabled'}.")
+            flash(f"Operator '{username}' {'disabled' if disable else 'enabled'}.", "success")
         except AuthError as exc:
-            flash(f"Refused: {exc}")
+            flash(f"Refused: {exc}", "error")
         return redirect(url_for("users"))
 
     @app.post("/users/<username>/password")
     def users_password(username):
         try:
             bastion.operators.set_password(username, request.form.get("password", ""), actor=_actor())
-            flash(f"Password updated for '{username}'.")
+            flash(f"Password updated for '{username}'.", "success")
         except AuthError as exc:
-            flash(f"Refused: {exc}")
+            flash(f"Refused: {exc}", "error")
         return redirect(url_for("users"))
 
     return app
 
 
 def serve(bastion: BastionApp, host: str = "127.0.0.1", port: int = 8788) -> None:
-    # Fail closed: refuse a non-loopback bind unless explicitly overridden and
-    # protected by a token. Settings come from resolved config (honors .env).
+    # The development server is loopback-only. Legacy override/token settings
+    # are passed for call compatibility but cannot authorize a remote bind.
     ensure_bind_allowed(
         host,
         allow_remote=bastion.config.allow_remote_dashboard,
         has_token=bool(bastion.config.dashboard_token),
     )
-    remote = host not in _LOOPBACK_HOSTS
     app = create_app(bastion)
-    mode = "remote (token auth required)" if remote else "loopback only"
+    mode = "loopback only"
     bastion.log.info("GreyNOC Bastion dashboard on http://%s:%s — %s — Ctrl+C to stop",
                      host, port, mode)
     app.run(host=host, port=port, debug=False, use_reloader=False)

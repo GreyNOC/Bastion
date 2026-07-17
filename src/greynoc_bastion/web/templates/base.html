@@ -49,9 +49,11 @@
     {% endif %}
   </aside>
   <main class="main">
-    {% with messages = get_flashed_messages() %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
-        {% for m in messages %}<div class="banner ok">{{ m }}</div>{% endfor %}
+        {% for category, m in messages %}
+          <div class="banner {{ 'ok' if category == 'success' else ('warn' if category == 'warning' else ('error' if category == 'error' else 'info')) }}">{{ m }}</div>
+        {% endfor %}
       {% endif %}
     {% endwith %}
     {% block content %}{% endblock %}

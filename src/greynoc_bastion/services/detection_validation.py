@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..adapters.base import guarded_call
 from ..adapters.detections_adapter import DetectionsAdapter
 from ..adapters.dmz_adapter import DmzAdapter
 from ..db import Database
@@ -22,6 +23,7 @@ from ..schemas import (
     FindingCategory,
     Severity,
     ValidationStatus,
+    stable_correlation_id,
 )
 from ..utils.logging import get_logger
 
@@ -32,21 +34,27 @@ class DetectionValidationService:
                  detections: DetectionsAdapter | None = None):
         self.db = db
         self.dmz = dmz or DmzAdapter()
-        self.detections = detections or DetectionsAdapter()
+        self.detections = detections or DetectionsAdapter(dmz=self.dmz)
         self.log = get_logger("detection_validation")
 
     def validate_scenario(self, scenario_path: Path, persist: bool = True) -> BastionValidationResult:
-        result = self.dmz.validate_scenario(Path(scenario_path))
+        result = guarded_call(self.dmz, self.dmz.validate_scenario, Path(scenario_path))
         if persist and self.db:
             self.db.save_validation(result)
             self.db.save_finding(self._to_finding(result))
         return result
 
     def validate_all(self, persist: bool = True) -> list[BastionValidationResult]:
-        results = self.dmz.validate_all_rules()
+        rules = guarded_call(self.dmz, self.dmz.load_rules)
+        results = guarded_call(self.dmz, self.dmz.validate_all_rules)
         if persist and self.db:
-            # Persist validated detections + results.
-            for det in self.detections.load_validated_pack():
+            # Derive lifecycle state from these exact results. Re-running the
+            # adapter here used to create dangling last_validation references.
+            pack = guarded_call(
+                self.detections, self.detections.load_validated_pack,
+                results=results, rules=rules,
+            )
+            for det in pack:
                 self.db.save_detection(det)
             for r in results:
                 self.db.save_validation(r)
@@ -66,6 +74,9 @@ class DetectionValidationService:
                      f"tp={r.true_positives} fp={r.false_positives} fn={r.false_negatives}"),
         )]
         return BastionFinding(
+            correlation_id=stable_correlation_id(
+                "fnd", "validation", r.detection_id, r.scenario,
+            ),
             title=f"Validation: {r.detection_id} — {r.verdict.value}",
             severity=severity,
             confidence=Confidence.HIGH,

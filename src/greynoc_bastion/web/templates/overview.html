@@ -10,15 +10,17 @@
 </div>
 
 <div class="actions">
+  {% if current_role in ('operator', 'admin') %}
   <form class="inline" method="post" action="{{ url_for('run_seed') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button class="btn">Run demo across all modules</button>
+    <button class="btn">Load sample forecast, detections, identities &amp; assets</button>
   </form>
   <form class="inline" method="post" action="{{ url_for('run_doctor') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button class="btn ghost">Run doctor</button>
   </form>
-  <a class="btn ghost" href="{{ url_for('reports') }}">Build report</a>
+  {% endif %}
+  <a class="btn ghost" href="{{ url_for('reports') }}">Go to reports</a>
 </div>
 
 <div class="cards">
@@ -48,20 +50,19 @@
     </tbody>
   </table></div>
   {% else %}
-  <p class="muted">No findings yet. Click <b>Run demo across all modules</b> to populate the console with
-  offline fixture data, or use the individual module pages.</p>
+  <p class="muted">No findings yet. Load the bundled sample data, or run an individual module.</p>
   {% endif %}
 </div>
 
 <div class="panel">
   <h2>Modules</h2>
   <div class="status-grid">
-    <div class="status-row"><span class="lab">Threat Forecast</span><span class="val">Detector-Engine intelligence brain</span></div>
+    <div class="status-row"><span class="lab">Threat Forecast</span><span class="val">EPSS/KEV scoring with disclosed timing assumptions</span></div>
     <div class="status-row"><span class="lab">Identity Blast Radius</span><span class="val">NHI scan (secrets masked)</span></div>
     <div class="status-row"><span class="lab">Detection Validation</span><span class="val">DMZ synthetic range</span></div>
     <div class="status-row"><span class="lab">Operator Playbooks</span><span class="val">{{ status.playbooks_available }} defensive playbooks</span></div>
     <div class="status-row"><span class="lab">Assets &amp; Exposure</span><span class="val">HomeGuard + Port-Manager (passive)</span></div>
-    <div class="status-row"><span class="lab">AI Assistant</span><span class="val {{ 'state-on' if config.ai_assistant else 'state-off' }}">{{ 'enabled' if config.ai_assistant else 'disabled (default)' }}</span></div>
+    <div class="status-row"><span class="lab">Offline report helper</span><span class="val {{ 'state-on' if config.ai_assistant else 'state-off' }}">{{ 'enabled' if config.ai_assistant else 'disabled (default)' }}</span></div>
   </div>
 </div>
 {% endblock %}

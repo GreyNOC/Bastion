@@ -51,8 +51,13 @@ def to_stix_bundle(threats: list[BastionThreat]) -> str:
         }
         if t.forecast:
             vuln["x_greynoc_forecast"] = {
-                "exploit_probability": t.forecast.exploit_probability,
+                "epss_probability_30d": t.forecast.exploit_probability,
+                "probability_horizon_days": t.forecast.probability_horizon_days,
                 "horizon_days_p50": t.forecast.horizon_days_p50,
+                "horizon_days_p90": t.forecast.horizon_days_p90,
+                "status": t.forecast.status,
+                "method": t.forecast.method,
+                "assumptions": t.forecast.assumptions,
                 "window": t.forecast.window,
             }
         objects.append(vuln)
