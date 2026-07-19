@@ -28,16 +28,23 @@ from typing import Any
 from ..safety.masking import scrub_text
 from ..schemas import BastionReport, ReportFormat, utcnow_iso
 from ..utils.logging import get_logger
+from . import signing
 from .report_center import ReportCenter
 
 _UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
 
-# Detached-signature scheme for bundles. HMAC-SHA256 with a locally generated
-# shared key: standard-library only, and honest about its trust model — it is
-# TAMPER EVIDENCE for transfer between parties who share the key out-of-band
-# (e.g. an air-gapped export), not third-party non-repudiation. An asymmetric
-# scheme (Ed25519 / PQ hybrid) stays on the roadmap; it needs a crypto
-# dependency this project deliberately doesn't take yet.
+# Default detached-signature scheme for bundles. HMAC-SHA256 with a locally
+# generated shared key: standard-library only, zero runtime dependencies, and
+# honest about its trust model — it is TAMPER EVIDENCE for transfer between
+# parties who share the key out-of-band (e.g. an air-gapped export), not
+# third-party non-repudiation.
+#
+# Asymmetric schemes (Ed25519 and post-quantum ML-DSA-65, plus a hybrid of the
+# two) are available on top of this via the optional ``cryptography`` backend
+# (:mod:`greynoc_bastion.services.signing`, installed with
+# ``greynoc-bastion[pqc]``). They give real public-key non-repudiation and,
+# in hybrid mode, quantum resistance. The HMAC path below is unchanged and
+# remains the zero-dependency default.
 SIGNING_SCHEME = "hmac-sha256-detached"
 _KEY_BYTES = 32
 
@@ -108,6 +115,7 @@ class EvidenceCenter:
             # can only advertise the capability, since the signature covers the
             # finished archive and therefore lives next to it, not inside it.
             "signing": {"signed": False, "scheme": SIGNING_SCHEME,
+                        "available_schemes": [SIGNING_SCHEME, *signing.available_asymmetric_schemes()],
                         "status": "detached-signature-available (bastion evidence sign)"},
             "findings": finding_index,
             "entries": {
@@ -209,6 +217,77 @@ class EvidenceCenter:
         return str(key_path)
 
     @staticmethod
+    def _write_owner_only(path: Path, data: bytes) -> None:
+        """Atomically write ``data`` to ``path`` with owner-only permissions.
+
+        Mirrors :meth:`generate_key`'s hardening: a fresh temp file is created
+        O_EXCL at mode 0600, ACL-hardened, then atomically renamed into place,
+        so there is never a world-readable window and a failed hardening never
+        leaves a permissive key behind.
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
+        fd = os.open(str(temp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+        try:
+            EvidenceCenter._secure_key_file(temp_path)
+            os.replace(temp_path, path)
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
+
+    @staticmethod
+    def crypto_backend_status() -> dict[str, Any]:
+        """Signing-backend capability snapshot (safe to display; no secrets)."""
+        return signing.backend_status()
+
+    def generate_keypair(self, private_path: Path, public_path: Path, *,
+                         scheme: str, force: bool = False) -> dict[str, Any]:
+        """Generate an asymmetric (or hybrid PQC) signing keypair.
+
+        Writes an owner-only **private** key envelope and a shareable **public**
+        key envelope, each a small JSON file. The public key is all a third
+        party needs to verify a bundle. Refuses to overwrite either file without
+        ``force`` (rotation is explicit; bundles signed with the old key stop
+        verifying).
+        """
+        if not signing.crypto_available():
+            raise signing.SigningBackendUnavailable(
+                "asymmetric signing needs the 'cryptography' library — "
+                "install it with:  pip install 'greynoc-bastion[pqc]'")
+        canonical = signing.resolve_scheme(scheme)
+        private_path = Path(private_path)
+        public_path = Path(public_path)
+        for p, label in ((private_path, "private"), (public_path, "public")):
+            if p.exists() and not force:
+                raise FileExistsError(
+                    f"{label} key file already exists: {p} (pass --force to rotate; "
+                    "bundles signed with the old key will no longer verify)")
+        private_env, public_env = signing.generate_keypair(canonical)
+        priv_bytes = (json.dumps(private_env, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+        self._write_owner_only(private_path, priv_bytes)
+        public_path.parent.mkdir(parents=True, exist_ok=True)
+        public_path.write_text(json.dumps(public_env, indent=2, ensure_ascii=False) + "\n",
+                               encoding="utf-8")
+        # Log the algorithm list (short, and more precise than the scheme id).
+        # The 33-char hybrid scheme constant would otherwise be redacted by the
+        # log scrubber's high-entropy-token backstop — the safety layer working
+        # as intended, but unhelpful in an audit trail.
+        self.log.info("asymmetric keypair generated: algorithms=%s key_id=%s",
+                      "+".join(private_env["algorithms"]), private_env["key_id"])
+        return {
+            "scheme": canonical,
+            "algorithms": list(private_env["algorithms"]),
+            "key_id": private_env["key_id"],
+            "private_key": str(private_path),
+            "public_key": str(public_path),
+        }
+
+    @staticmethod
     def _secure_key_file(path: Path) -> None:
         """Apply owner-only permissions using the platform's real ACL model."""
         path = Path(path)
@@ -308,19 +387,49 @@ class EvidenceCenter:
             "schema_version": schema_version,
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
+    @staticmethod
+    def _read_key_envelope(key_path: Path) -> dict[str, Any] | None:
+        """Return a signing-key JSON envelope if the file is one, else ``None``.
+
+        ``None`` means "treat this as an HMAC hex key" — the default scheme.
+        A missing file is left for the downstream loader to report.
+        """
+        try:
+            text = Path(key_path).read_text(encoding="utf-8").strip()
+        except (FileNotFoundError, OSError, UnicodeDecodeError):
+            return None
+        if not text.startswith("{"):
+            return None
+        try:
+            obj = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if signing.is_private_key_envelope(obj) or signing.is_public_key_envelope(obj):
+            return obj
+        return None
+
     def sign_bundle(self, bundle_path: Path, *, key_path: Path) -> dict[str, Any]:
         """Write a detached signature file next to the bundle and return its info.
 
-        The signature is HMAC-SHA256 over the bundle's SHA-256 **and** the
+        The key file's format selects the scheme. A raw hex key (the default,
+        from ``bastion evidence keygen``) uses **HMAC-SHA256** shared-key
+        signing; an asymmetric key envelope (from ``keygen --scheme
+        ed25519|ml-dsa-65|hybrid``) uses public-key signing via the optional
+        ``cryptography`` backend.
+
+        In every scheme the signature covers the bundle's SHA-256 **and** the
         attested sidecar metadata (bundle name, ``signed_at``, scheme,
-        schema_version), so it covers the manifest, every entry, and the archive
-        structure (via the digest) plus the attestation fields themselves. The
-        sidecar (``<bundle>.sig.json``) records the scheme, a non-reversible key
-        id, the bundle's SHA-256, and the signature.
+        schema_version), so it protects the manifest, every entry, and the
+        archive structure (via the digest) plus the attestation fields
+        themselves. The sidecar (``<bundle>.sig.json``) records the scheme, a
+        non-reversible key id, the bundle's SHA-256, and the signature(s).
         """
         bundle_path = Path(bundle_path)
         if not bundle_path.is_file():
             raise FileNotFoundError(f"bundle not found: {bundle_path}")
+        envelope = self._read_key_envelope(key_path)
+        if envelope is not None:
+            return self._sign_bundle_asymmetric(bundle_path, envelope, key_path)
         key = self._load_key(key_path)
         digest = self._digest_file(bundle_path)
         signed_at = utcnow_iso()
@@ -347,16 +456,130 @@ class EvidenceCenter:
         self.log.info("bundle signed: %s (key id %s)", sig_path.name, sidecar["key_id"])
         return {"signature_path": str(sig_path), **sidecar}
 
-    def verify_signature(self, bundle_path: Path, *, key_path: Path,
+    def _sign_bundle_asymmetric(self, bundle_path: Path, private_env: dict[str, Any],
+                                key_path: Path) -> dict[str, Any]:
+        """Sign a bundle with an asymmetric / hybrid-PQC private key envelope."""
+        if not signing.is_private_key_envelope(private_env):
+            raise ValueError(
+                f"{key_path} is a public key; signing needs the private key")
+        if not signing.crypto_available():
+            raise signing.SigningBackendUnavailable(
+                "asymmetric signing needs the 'cryptography' library — "
+                "install it with:  pip install 'greynoc-bastion[pqc]'")
+        # A private key must be owner-only, exactly like the HMAC key.
+        if not self.key_permissions_private(key_path):
+            raise PermissionError(
+                f"signing key permissions are not owner-only: {key_path}")
+        scheme = str(private_env.get("scheme"))
+        algorithms = list(signing.SCHEME_ALGORITHMS[scheme])
+        digest = self._digest_file(bundle_path)
+        signed_at = utcnow_iso()
+        schema_version = "2.0"
+        signing_input = self._signing_input(
+            bundle_sha256=digest, bundle=bundle_path.name, signed_at=signed_at,
+            scheme=scheme, schema_version=schema_version)
+        signatures = signing.sign(signing_input, private_env)
+        sidecar: dict[str, Any] = {
+            "signature_type": "greynoc-bastion-evidence-signature",
+            "schema_version": schema_version,
+            "scheme": scheme,
+            "algorithms": algorithms,
+            "key_id": private_env.get("key_id"),
+            "bundle": bundle_path.name,
+            "bundle_sha256": digest,
+            "signatures": signatures,
+            "signed_at": signed_at,
+            "trust_model": signing.trust_model(scheme),
+        }
+        sig_path = bundle_path.with_name(bundle_path.name + ".sig.json")
+        sig_path.write_text(json.dumps(sidecar, indent=2, ensure_ascii=False), encoding="utf-8")
+        self.log.info("bundle signed (%s): %s (key id %s)",
+                      "+".join(algorithms), sig_path.name, sidecar["key_id"])
+        # Keep a stable, single-scheme-agnostic shape for callers that print a
+        # summary: expose the first signature under "signature" too.
+        first_sig = next(iter(signatures.values()), "")
+        return {"signature_path": str(sig_path), "signature": first_sig, **sidecar}
+
+    @staticmethod
+    def _load_public_env_or_raise(public_key_path: Path | None,
+                                  key_path: Path | None) -> dict[str, Any]:
+        """Load a public-key envelope for verification from ``--pubkey`` (or a
+        ``--key`` that is itself a key envelope). Missing/malformed key files are
+        operator errors and raise; a well-formed but *wrong* key is not — it is
+        left for the signature check to reject."""
+        path = public_key_path or key_path
+        if path is None:
+            raise FileNotFoundError(
+                "a public key is required to verify an asymmetric signature "
+                "(pass --pubkey <evidence.pub>)")
+        path = Path(path)
+        if not path.is_file():
+            raise FileNotFoundError(f"public key not found: {path}")
+        try:
+            obj = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+            raise ValueError(f"unreadable public key file: {path} ({exc})") from None
+        if not (signing.is_public_key_envelope(obj) or signing.is_private_key_envelope(obj)):
+            raise ValueError(f"not a Bastion signing key envelope: {path}")
+        try:
+            return signing.to_public_envelope(obj)
+        except signing.SigningBackendUnavailable as exc:
+            raise ValueError(str(exc)) from None
+        except Exception as exc:  # malformed key material
+            raise ValueError(f"unusable key envelope: {path} ({exc})") from None
+
+    def _verify_asymmetric(self, bundle_path: Path, sig_path: Path,
+                           sidecar: dict[str, Any], *, key_path: Path | None,
+                           public_key_path: Path | None) -> dict[str, Any]:
+        """Verify an asymmetric / hybrid signature sidecar with a public key."""
+        pub_env = self._load_public_env_or_raise(public_key_path, key_path)
+        scheme = str(sidecar.get("scheme"))
+        problems: list[str] = []
+        sidecar_key_id = sidecar.get("key_id")
+        if sidecar_key_id and pub_env.get("key_id") and sidecar_key_id != pub_env["key_id"]:
+            problems.append("key id mismatch: signature was made with a different key")
+        if not problems:
+            if pub_env.get("scheme") != scheme:
+                problems.append(
+                    f"scheme mismatch: signature is {scheme!r} but key is "
+                    f"{pub_env.get('scheme')!r}")
+        if not problems:
+            digest = self._digest_file(bundle_path)
+            if digest != str(sidecar.get("bundle_sha256", "")):
+                problems.append("bundle hash mismatch: bundle bytes changed since signing")
+            signing_input = self._signing_input(
+                bundle_sha256=str(sidecar.get("bundle_sha256", "")),
+                bundle=str(sidecar.get("bundle", "")),
+                signed_at=str(sidecar.get("signed_at", "")),
+                scheme=str(sidecar.get("scheme", "")),
+                schema_version=str(sidecar.get("schema_version", "")),
+            )
+            problems.extend(signing.verify(signing_input, sidecar.get("signatures", {}), pub_env))
+        return {
+            "bundle": str(bundle_path),
+            "signature": str(sig_path),
+            "scheme": scheme,
+            "ok": not problems,
+            "problems": problems,
+            "signed_at": sidecar.get("signed_at"),
+        }
+
+    def verify_signature(self, bundle_path: Path, *, key_path: Path | None = None,
+                         public_key_path: Path | None = None,
                          signature_path: Path | None = None) -> dict[str, Any]:
         """Verify a bundle against its detached signature. Never raises for a
         bad signature — reports ``ok: False`` with reasons (missing key files
-        still raise, since that is operator error, not evidence tampering)."""
+        still raise, since that is operator error, not evidence tampering).
+
+        The sidecar's ``scheme`` selects the verifier: HMAC shared-key bundles
+        are checked with ``key_path``; asymmetric / hybrid-PQC bundles are
+        checked with ``public_key_path`` (the public key alone suffices)."""
         bundle_path = Path(bundle_path)
         sig_path = Path(signature_path) if signature_path else \
             bundle_path.with_name(bundle_path.name + ".sig.json")
-        key = self._load_key(key_path)
 
+        # Peek the sidecar first so we route to the right verifier and demand the
+        # right kind of key. Malformed bundles/sidecars are reported, not raised.
         problems: list[str] = []
         sidecar: dict[str, Any] = {}
         if not bundle_path.is_file():
@@ -370,9 +593,21 @@ class EvidenceCenter:
                 problems.append(f"unreadable signature file: {exc}")
         if not problems and not isinstance(sidecar, dict):
             problems.append("signature file is not a JSON object")
+
+        scheme = sidecar.get("scheme") if isinstance(sidecar, dict) else None
+        if not problems and scheme in signing.ASYMMETRIC_SCHEMES:
+            return self._verify_asymmetric(bundle_path, sig_path, sidecar,
+                                           key_path=key_path, public_key_path=public_key_path)
+
+        # ---- HMAC shared-key path (default scheme) ----
+        if key_path is None:
+            raise FileNotFoundError(
+                "a signing key is required to verify this signature "
+                "(pass --key for HMAC bundles, or --pubkey for asymmetric bundles)")
+        key = self._load_key(key_path)
         if not problems:
-            if sidecar.get("scheme") != SIGNING_SCHEME:
-                problems.append(f"unsupported scheme: {sidecar.get('scheme')!r}")
+            if scheme != SIGNING_SCHEME:
+                problems.append(f"unsupported scheme: {scheme!r}")
             if sidecar.get("key_id") and sidecar["key_id"] != self._key_id(key):
                 problems.append("key id mismatch: signature was made with a different key")
         if not problems:

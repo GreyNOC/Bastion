@@ -48,24 +48,31 @@ python scripts/build_portable.py      # dist/bastion-portable-<version>-<platfor
 python scripts/build_portable.py --no-deps   # CLI-only bundle (vendors nothing)
 ```
 
-## Evidence-bundle signing (shipped in 0.2.0)
+## Evidence-bundle signing
 
-Evidence bundles are **integrity-checked** and can now be **detached-signed**:
+Evidence bundles are **integrity-checked** and can be **detached-signed**:
 
 - Every bundle's `manifest.json` records a per-entry SHA-256 and a bundle-wide
   entry map. `bastion evidence verify <bundle>` recomputes and compares them.
 - `bastion evidence keygen | sign | verify` add a **detached signature**
   (`<bundle>.sig.json`) over the bundle's SHA-256 **and** its attested metadata
-  (bundle name, `signed_at`, scheme, schema version), using HMAC-SHA256 with a
-  local shared key (stored owner-only via POSIX mode/Windows ACL; rotation is explicit). Verification is
-  constant-time and reports tampering without raising.
-- Trust model, stated honestly: shared-key HMAC is tamper **evidence** for
-  transfer between parties who exchange the key out-of-band (e.g. air-gapped
+  (bundle name, `signed_at`, scheme, schema version). Verification reports
+  tampering without raising.
+- **Default scheme (shipped in 0.2.0): shared-key HMAC-SHA256**, zero runtime
+  dependencies, local key stored owner-only via POSIX mode / Windows ACL,
+  constant-time verification. Trust model, stated honestly: tamper **evidence**
+  for transfer between parties who exchange the key out-of-band (e.g. air-gapped
   export) — not third-party non-repudiation.
+- **Asymmetric & post-quantum signing (shipped in 0.3.0):** with the optional
+  `cryptography` backend (`pip install greynoc-bastion[pqc]`),
+  `bastion evidence keygen --scheme ed25519|ml-dsa-65|hybrid` mints a public
+  keypair. Ed25519 (RFC 8032) and ML-DSA-65 (FIPS 204) give real public-key
+  non-repudiation — a verifier needs only the `.pub`. The **hybrid** scheme
+  signs with both and requires **both** to verify, a defense-in-depth
+  construction for the PQC transition that aligns with Bastion's
+  harvest-now-decrypt-later stance. `cryptography` is never a required runtime
+  dependency; Flask remains the only one.
 
 Still planned (Phase 4):
 
-- An **asymmetric** scheme (Ed25519, with an optional post-quantum SLH-DSA
-  hybrid for long-lived evidence, aligning with Bastion's harvest-now-decrypt-
-  later stance) for true public-verifiability. It needs a crypto dependency the
-  project does not yet take.
+- Postgres backend and an email notification sink (see the roadmap).

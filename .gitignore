@@ -18,6 +18,17 @@ htmlcov/
 bastion-home/
 reports-out/
 
+# Evidence signing keys, signatures, and bundles — never commit private key
+# material or signed evidence. `evidence keygen` writes these, and the docs steer
+# report/evidence output into ./out; keep all of it out of version control.
+*.key
+*.pub
+*.pem
+*.p8
+*.sig.json
+*.evidence.zip
+/out/
+
 # OS / editor
 .DS_Store
 Thumbs.db

@@ -86,7 +86,33 @@ def test_cache_prune_keeps_newest(tmp_path):
         c.put(f"https://feed.example/{i}", FEED, 200, now=1000.0 + i)
     metas = list(tmp_path.glob("*.meta.json"))
     assert len(metas) <= 3                          # bounded
-    assert c.get("https://feed.example/5") is not None   # newest survives
+    # Pruning honors the logical fetched_at (not filesystem mtime), so the three
+    # newest survive and the three oldest are evicted — deterministically.
+    for i in (3, 4, 5):
+        assert c.get(f"https://feed.example/{i}") is not None, i
+    for i in (0, 1, 2):
+        assert c.get(f"https://feed.example/{i}") is None, i
+
+
+def test_cache_prune_tolerates_corrupt_meta(tmp_path):
+    """A single damaged meta must not crash `_prune` (and thus `put`). The
+    recency sort tolerates the same malformed shapes `get` tolerates. `max_entries`
+    is set above the total so this isolates the no-crash property from eviction
+    ordering."""
+    c = FeedCache(tmp_path, ttl_seconds=100, max_entries=10)
+    c.put(URL, FEED, 200, now=1000.0)
+    # Malformed metas that must not raise during the next prune: valid-JSON
+    # scalars, dicts with a non-numeric fetched_at, and invalid JSON.
+    (tmp_path / "corrupt1.meta.json").write_text("null", encoding="utf-8")
+    (tmp_path / "corrupt2.meta.json").write_text("123", encoding="utf-8")
+    (tmp_path / "corrupt3.meta.json").write_text('{"fetched_at": null}', encoding="utf-8")
+    (tmp_path / "corrupt4.meta.json").write_text('{"fetched_at": [1,2]}', encoding="utf-8")
+    (tmp_path / "corrupt5.meta.json").write_text("{not json", encoding="utf-8")
+    # This put triggers _prune; it must complete without raising.
+    c.put("https://feed.example/new", FEED, 200, now=1001.0)
+    # The real, well-formed entries remain retrievable (nothing evicted here).
+    assert c.get(URL) is not None
+    assert c.get("https://feed.example/new") is not None
 
 
 def test_cache_prune_sweeps_orphan_bodies_and_temp_files(tmp_path):

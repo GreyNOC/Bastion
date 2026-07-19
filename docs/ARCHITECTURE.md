@@ -75,8 +75,11 @@ universal `BastionFinding` shape:
 - `ReportCenter` — renders a report to JSON/Markdown/HTML/CSV/SARIF/PDF (with a
   zero-dependency PDF writer).
 - `EvidenceCenter` — packages findings + evidence into an integrity-checked zip
-  bundle; also implements detached bundle signing (keygen/sign/verify,
-  shared-key HMAC-SHA256).
+  bundle; also implements detached bundle signing (keygen/sign/verify). The
+  default scheme is shared-key HMAC-SHA256 (zero dependencies); asymmetric and
+  post-quantum public-key signing (Ed25519, ML-DSA-65, and a hybrid) live in
+  `services/signing.py` behind the optional `cryptography` backend and are
+  dispatched by key/sidecar scheme.
 - `AIAssistantService` — compatibility-named wrapper for the offline report helper; disabled by
   default.
 - `CaseManagementService` — findings → assignable, auditable response work with a

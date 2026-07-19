@@ -31,7 +31,7 @@ plus an optional deterministic report-formatting helper:
 | **Assets & Exposure** | Passive review of local listening services with plain-English explanations and safe, local-only remediation guidance. | HomeGuard + Port-Manager |
 | **Correlation** | Cross-engine spine linking threats ↔ detections ↔ playbooks ↔ assets by ATT&CK technique and host; flags **forecasted techniques with no validated detection** (coverage gaps). | (new) |
 | **Case Management** | Assign / track / close response work built from findings, with a persistent workqueue, an idempotent triage sweep, scrubbed notes, and a full audit trail. | (new) |
-| **Report & Evidence Center** | Reports with recorded source evidence in HTML, Markdown, JSON, CSV, SARIF, PDF, integrity-checked evidence bundles, and **detached bundle signing** (`bastion evidence keygen/sign/verify`). | (new) |
+| **Report & Evidence Center** | Reports with recorded source evidence in HTML, Markdown, JSON, CSV, SARIF, PDF, integrity-checked evidence bundles, and **detached bundle signing** — shared-key HMAC by default, plus optional **asymmetric** (Ed25519) and **post-quantum** (ML-DSA-65, FIPS 204) public-key signing with a classical+PQC **hybrid** mode (`bastion evidence keygen/sign/verify/backends`). | (new) |
 | **Schedules & Workflows** | Persisted report/workflow schedules with a local explicit runner (`bastion schedule run-due`), local delivery, and named cross-module workflows (`bastion orchestrate run full-sweep`). | (new) |
 | **Offline report helper** *(optional, off by default)* | Deterministically formats finding explanations, report summaries, and ticket drafts. No model, network client, or command runner is implemented. | GreyIQ (defensive subset) |
 
@@ -132,9 +132,17 @@ bastion schedule add nightly --every 24 --deliver-to ./out/delivered
 bastion schedule run-due          # wire this line to cron / a systemd timer
 
 # 13. Sign and verify evidence bundles for tamper-evident transfer
+#     Default: zero-dependency shared-key HMAC.
 bastion evidence keygen
 bastion evidence sign ./out/<report-id>.evidence.zip
 bastion evidence verify ./out/<report-id>.evidence.zip --key ~/.greynoc-bastion/keys/evidence.key
+
+#     Optional public-key signing (pip install 'greynoc-bastion[pqc]'):
+#     a classical + post-quantum HYBRID keypair — a verifier needs only the .pub.
+bastion evidence backends                              # show available schemes
+bastion evidence keygen --scheme hybrid                # writes evidence.key + evidence.pub
+bastion evidence sign ./out/<report-id>.evidence.zip
+bastion evidence verify ./out/<report-id>.evidence.zip --pubkey ~/.greynoc-bastion/keys/evidence.pub
 
 # 14. Build a consolidated report with recorded evidence; open the dashboard
 bastion report build --out ./out
@@ -171,6 +179,12 @@ tests:
   guard as live fetching.
 - **Schedules never self-execute.** `bastion schedule run-due` is the only runner —
   you wire it to cron/systemd yourself.
+- **Evidence signing is honest about its trust model.** HMAC (the zero-dependency
+  default) is shared-key tamper evidence for air-gapped transfer. The optional
+  asymmetric schemes give real public-key non-repudiation, and the **hybrid**
+  Ed25519 + ML-DSA-65 mode is quantum-resistant — a verifier accepts only if
+  **both** signatures hold. Private keys are written owner-only; the public key
+  is all a third party needs to verify.
 
 Full model: [`docs/SAFETY_MODEL.md`](docs/SAFETY_MODEL.md) ·
 Security policy: [`SECURITY.md`](SECURITY.md).

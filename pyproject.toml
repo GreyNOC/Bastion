@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greynoc-bastion"
-version = "0.2.1"
+version = "0.3.0"
 description = "GreyNOC Bastion — local-first defensive cyber operations platform for under-defended organizations."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,6 +29,14 @@ Repository = "https://github.com/GreyNOC/Bastion"
 Issues = "https://github.com/GreyNOC/Bastion/issues"
 
 [project.optional-dependencies]
+# Post-quantum / asymmetric evidence-bundle signing. OPTIONAL: the default HMAC
+# shared-key signing scheme needs zero dependencies. Installing this extra adds
+# public-key signing — Ed25519 (classical) and ML-DSA-65 (FIPS 204, post-quantum),
+# plus a hybrid of the two — via the vetted `cryptography` library. ML-DSA
+# support requires cryptography >= 45.
+pqc = [
+    "cryptography>=45.0",
+]
 # Dev tooling only — none of these are runtime dependencies. The product runs
 # on Flask (+ the standard library) alone.
 dev = [

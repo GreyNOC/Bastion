@@ -70,6 +70,9 @@ where each rule is enforced.
 | Web-operator schedule delivery confined to the Bastion home tree | `services/scheduler.py`, `web/server.py` | `test_scheduler_orchestrator.py` |
 | Evidence signing key owner-only (POSIX mode/Windows ACL), never logged; signature verification constant-time | `services/evidence_center.py` | `test_evidence_signing.py` |
 | Evidence signature covers the attested metadata, not just the bundle digest | `services/evidence_center.py` | `test_evidence_signing.py` |
+| Asymmetric/PQC signing is optional; a missing `cryptography` backend never breaks the zero-dependency HMAC path | `services/signing.py`, `services/evidence_center.py` | `test_asymmetric_signing.py` |
+| Asymmetric private keys written owner-only; the public key carries no private material; verify needs only the public key | `services/signing.py`, `services/evidence_center.py` | `test_asymmetric_signing.py` |
+| Hybrid (Ed25519 + ML-DSA-65) verification requires **both** signatures; either one tampered or missing fails | `services/signing.py` | `test_asymmetric_signing.py` |
 | Post-login redirect confined to in-app paths (no open redirect via `next`) | `web/server.py` `_safe_next` | `test_auth_rbac.py` |
 | Token-bootstrapped sessions bound to the current token (rotation revokes) | `web/server.py` `_request_authed` | `test_auth_rbac.py` |
 

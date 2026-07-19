@@ -99,9 +99,9 @@ Phase 1B is complete.
       Detached HMAC-SHA256 signature over the whole bundle file, local key
       (owner-only POSIX mode/Windows ACL; rotation is explicit), non-reversible key ids, constant-time
       verification. Trust model stated honestly: shared-key tamper evidence
-      for air-gapped transfer — not third-party non-repudiation. An asymmetric
-      (Ed25519 / PQ-hybrid) scheme stays planned; it needs a crypto dependency
-      this project doesn't take yet.
+      for air-gapped transfer — not third-party non-repudiation. This is the
+      zero-dependency default; asymmetric and post-quantum public-key signing
+      landed in Phase 4 (below).
 - [x] Pluggable notification fabric (`bastion notify test`): OFF by default;
       local JSONL file sink when enabled; opt-in HTTPS webhook sink on top,
       routed through the same egress guard as live fetching (allowlist, SSRF
@@ -112,11 +112,23 @@ Phase 1B is complete.
       engines, correlation, case triage, and reporting; per-step outcomes;
       one failed step never aborts the rest; runs audited + notified.
 
-## Phase 4 — Later (planned)
+## Phase 4 — Asymmetric / post-quantum signing & scale (in progress)
 
+- [x] **Asymmetric + post-quantum-hybrid bundle signing** (`bastion evidence
+      keygen --scheme ed25519|ml-dsa-65|hybrid`, `sign`, `verify --pubkey`,
+      `backends`). Public-key signing via the optional, vetted `cryptography`
+      backend (`pip install greynoc-bastion[pqc]`): Ed25519 (classical,
+      RFC 8032), ML-DSA-65 (post-quantum, FIPS 204), and a **hybrid** of the two
+      where verification requires **both** signatures — the defense-in-depth
+      construction for the PQC transition (safe unless both primitives break).
+      Keys are standards-serialized (PKCS#8 / SPKI DER in a JSON envelope);
+      private keys are written owner-only; the public key alone verifies, giving
+      real third-party non-repudiation. The signature covers the bundle digest
+      **and** the attested sidecar metadata, exactly like the HMAC scheme. The
+      HMAC path remains the zero-dependency default — `cryptography` never
+      becomes a required runtime dependency; Flask is still the only one.
 - [ ] Postgres backend behind the existing repository interface, with a real
       integration-test story (containerized Postgres in CI).
-- [ ] Asymmetric bundle signing (Ed25519, optional post-quantum hybrid).
 - [ ] Additional notification sinks (email) behind the same egress guard.
 
 ## Non-goals (permanent)

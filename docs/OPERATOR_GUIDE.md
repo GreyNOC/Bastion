@@ -10,9 +10,10 @@ bastion doctor      # runs local safety and health checks
 bastion status      # shows configuration and how many records are stored
 ```
 
-`doctor` runs eight self-checks (loopback binding, live-fetch configuration, database and
-report-dir health, playbook corpus, detection-pack validation, secret masking, and
-confirmation that no helper command runner exists). Its result is recorded and shown on the **Safety
+`doctor` runs ten self-checks (loopback binding, live-fetch configuration, database and
+report-dir health, playbook corpus presence, absence of offensive playbooks, detection-pack
+validation, secret masking, confirmation that no helper command runner exists, and which
+evidence-signing backends are available). Its result is recorded and shown on the **Safety
 Status** page.
 
 ## Using the dashboard
@@ -154,11 +155,40 @@ bastion evidence sign ./out/<report-id>.evidence.zip   # writes <bundle>.sig.jso
 bastion evidence verify ./out/<report-id>.evidence.zip --key ~/.greynoc-bastion/keys/evidence.key
 ```
 
-The scheme is shared-key HMAC-SHA256: anyone holding the same key file (exchanged
-out-of-band, e.g. on removable media for an air-gapped site) can verify the bundle
-was not modified in transit. It is honest tamper evidence, **not** third-party
-non-repudiation — an asymmetric scheme is on the roadmap. Rotating the key
-(`keygen --force`) invalidates old signatures.
+The default scheme is shared-key HMAC-SHA256: anyone holding the same key file
+(exchanged out-of-band, e.g. on removable media for an air-gapped site) can verify
+the bundle was not modified in transit. It is honest tamper evidence, **not**
+third-party non-repudiation. Rotating the key (`keygen --force`) invalidates old
+signatures.
+
+### Public-key signing (asymmetric & post-quantum)
+
+For real third-party non-repudiation — where a verifier needs only your **public**
+key, never the secret — install the optional signing backend and generate a
+keypair:
+
+```bash
+pip install 'greynoc-bastion[pqc]'         # adds the vetted `cryptography` library
+bastion evidence backends                  # show which schemes are available
+bastion evidence keygen --scheme hybrid    # writes evidence.key (private) + evidence.pub
+bastion evidence sign ./out/<report-id>.evidence.zip
+bastion evidence verify ./out/<report-id>.evidence.zip --pubkey ~/.greynoc-bastion/keys/evidence.pub
+```
+
+Three schemes are available:
+
+| `--scheme`   | Algorithm                     | Property |
+| ------------ | ----------------------------- | -------- |
+| `ed25519`    | EdDSA, RFC 8032               | Classical public-key non-repudiation. |
+| `ml-dsa-65`  | ML-DSA-65, FIPS 204           | Post-quantum non-repudiation. |
+| `hybrid`     | Ed25519 **and** ML-DSA-65     | Both signatures; verification requires **both** to pass. Quantum-resistant with a classical safety net — safe unless *both* primitives are broken. `hybrid` is the recommended choice during the PQC transition. |
+
+The private key is written owner-only (POSIX `0600` / Windows ACL); the public key
+(`.pub`) is what you distribute so others can verify. Signing covers the bundle
+digest **and** the attested sidecar metadata (bundle name, `signed_at`, scheme),
+so neither the archive bytes nor the attestation can be altered without breaking
+verification. Rotating (`keygen --scheme … --force`) mints a new keypair and
+invalidates old signatures.
 
 ## Working findings as cases
 

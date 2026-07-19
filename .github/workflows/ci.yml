@@ -32,8 +32,19 @@ jobs:
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
 
-      - name: Install (with dev tools)
-        run: pip install -e ".[dev]"
+      - name: Install (with dev tools + optional signing backend)
+        # The [pqc] extra pulls `cryptography`, without which the asymmetric /
+        # post-quantum signing tests SKIP — a green-but-hollow gate. Install it
+        # so those tests actually run.
+        run: pip install -e ".[dev,pqc]"
+
+      - name: Assert signing backend present (fail loudly, never skip silently)
+        # Guards against a future dependency regression re-hiding the flagship
+        # feature behind test skips. ML-DSA needs cryptography>=45 + OpenSSL 3.5.
+        run: >-
+          python -c "from greynoc_bastion.services import signing;
+          assert signing.crypto_available() and signing.mldsa_available(),
+          'pqc signing backend missing — asymmetric/PQC tests would silently skip'"
 
       - name: Lint (ruff)
         run: ruff check src tests
@@ -49,4 +60,26 @@ jobs:
         continue-on-error: true
 
       - name: Tests (pytest)
+        run: pytest
+
+  # A dedicated leg WITHOUT the [pqc] extra: proves the zero-dependency default
+  # path (HMAC signing) works and the asymmetric tests degrade gracefully
+  # (skip, not error) when `cryptography` is absent — exactly a lean install.
+  degradation:
+    name: degradation (no pqc extra)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - name: Install without the signing backend
+        run: pip install -e ".[dev]"
+      - name: Assert signing backend ABSENT (this leg tests graceful degradation)
+        run: >-
+          python -c "from greynoc_bastion.services import signing;
+          assert not signing.crypto_available(),
+          'cryptography unexpectedly installed on the no-pqc leg'"
+      - name: Tests (pytest — HMAC path runs, asymmetric tests skip cleanly)
         run: pytest

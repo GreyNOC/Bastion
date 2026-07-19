@@ -170,10 +170,32 @@ class FeedCache:
         grow the cache, and a crash mid-write could leave an orphan ``.body`` or
         a ``.tmp`` behind. Cleaning all three keeps disk use genuinely bounded.
         """
+        def _recency(p: Path) -> tuple[float, str]:
+            """Sort key: the logical ``fetched_at`` recorded in the meta is the
+            authoritative recency, with the filename as a stable tiebreaker.
+            Filesystem mtime is only a fallback for an unreadable meta — it is
+            unreliable (equal under fast writes, and an AV scan or backup can
+            touch a body file and reorder the cache).
+
+            Must never raise: a corrupt meta (invalid JSON, not an object, or a
+            non-numeric ``fetched_at``) is tolerated here exactly as ``get()``
+            tolerates it — falling back to mtime — so a single damaged cache file
+            can never crash ``_prune`` and, through it, a live ingest."""
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return (float(data.get("fetched_at", 0.0)), p.name)
+            except (OSError, ValueError, TypeError):
+                pass
+            try:
+                return (p.stat().st_mtime, p.name)
+            except OSError:
+                return (0.0, p.name)
+
         try:
             metas = sorted(
                 self.cache_dir.glob(f"*{_META_SUFFIX}"),
-                key=lambda p: p.stat().st_mtime,
+                key=_recency,
                 reverse=True,
             )
         except OSError:

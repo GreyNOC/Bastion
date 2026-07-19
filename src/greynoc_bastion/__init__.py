@@ -11,7 +11,7 @@ Design tenets (enforced elsewhere in this package):
   * No offensive capability. Defensive only.
 """
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 __product__ = "GreyNOC Bastion"
 
 __all__ = ["__version__", "__product__"]

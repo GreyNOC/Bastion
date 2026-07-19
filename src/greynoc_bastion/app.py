@@ -91,6 +91,7 @@ class BastionApp:
             "counts": self.db.counts(),
             "safety_posture": self.safety_status().posture,
             "playbooks_available": len(self.playbooks._iter_files()),
+            "signing_backends": self.evidence_center.crypto_backend_status(),
             "timestamp": utcnow_iso(),
         }
 
@@ -141,6 +142,13 @@ class BastionApp:
         # 8) The offline helper has no command runner in this build.
         check("offline_helper_command_runner_absent", True,
               f"legacy_flag={self.config.ai_command_execution}; implemented=false")
+        # 9) Evidence signing backends (informational: HMAC is always available;
+        #    asymmetric Ed25519 and post-quantum ML-DSA-65 are optional).
+        sb = self.evidence_center.crypto_backend_status()
+        asym = "yes" if sb["cryptography_installed"] else "no (pip install greynoc-bastion[pqc])"
+        pqc = "yes" if sb["mldsa_available"] else "no"
+        check("signing_backends_available", True,
+              f"hmac=yes; asymmetric(ed25519)={asym}; post-quantum(ml-dsa-65)={pqc}")
 
         ok = all(c["ok"] for c in checks)
         result = "ok" if ok else "issues-found"

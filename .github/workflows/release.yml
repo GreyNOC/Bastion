@@ -30,7 +30,15 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip
-      - run: pip install -e ".[dev]"
+      # [pqc] pulls `cryptography`, so the asymmetric / post-quantum signing
+      # tests actually RUN here — a tag must never publish crypto that the gate
+      # skipped. The assert fails the release if the backend is missing.
+      - run: pip install -e ".[dev,pqc]"
+      - name: Assert signing backend present (no silent skips gate the tag)
+        run: >-
+          python -c "from greynoc_bastion.services import signing;
+          assert signing.crypto_available() and signing.mldsa_available(),
+          'pqc signing backend missing — asymmetric/PQC tests would silently skip'"
       - run: ruff check src tests
       - run: mypy src
       - run: bandit -r src -c pyproject.toml

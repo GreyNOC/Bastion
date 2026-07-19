@@ -37,6 +37,7 @@ from . import __product__, __version__
 from .app import BastionApp
 from .config import load_config
 from .schemas import ReportFormat
+from .services import signing
 
 
 # --- small output helpers ----------------------------------------------------
@@ -174,6 +175,9 @@ def cmd_status(args) -> int:
     print(f"  Report dir       : {c['report_dir']}")
     print(f"  Database         : {c['db_path']}")
     print(f"  Playbooks        : {status['playbooks_available']}")
+    sb = status.get("signing_backends", {})
+    sign_schemes = ["hmac", *(_scheme_short(s) for s in sb.get("asymmetric_schemes", []))]
+    print(f"  Signing          : {', '.join(sign_schemes)}")
     print("  Stored records   :")
     for k, v in status["counts"].items():
         print(f"      {k:20} {v}")
@@ -494,19 +498,79 @@ def _default_key_path(app) -> Path:
     return app.config.home / "keys" / "evidence.key"
 
 
+def _default_pub_path(app) -> Path:
+    return app.config.home / "keys" / "evidence.pub"
+
+
+def _scheme_short(scheme: str) -> str:
+    """Map a canonical asymmetric scheme id to its short CLI alias."""
+    return {
+        signing.SCHEME_ED25519: "ed25519",
+        signing.SCHEME_MLDSA65: "ml-dsa-65",
+        signing.SCHEME_HYBRID: "hybrid",
+    }.get(scheme, scheme)
+
+
 def cmd_evidence(args) -> int:
     app = _app(args)
 
+    if args.evidence_cmd == "backends":
+        backend = app.evidence_center.crypto_backend_status()
+        if args.json:
+            _print_json(backend)
+            return 0
+        print("Evidence signing backends")
+        print("  HMAC-SHA256 (shared key) : available (zero dependencies)")
+        cg = "available" if backend["cryptography_installed"] else "not installed"
+        ver = f" v{backend['cryptography_version']}" if backend["cryptography_version"] else ""
+        print(f"  cryptography backend     : {cg}{ver}")
+        print(f"  Ed25519 (classical)      : {'available' if backend['ed25519_available'] else 'unavailable'}")
+        print(f"  ML-DSA-65 (post-quantum) : {'available' if backend['mldsa_available'] else 'unavailable'}")
+        schemes = ["hmac", *(_scheme_short(s) for s in backend["asymmetric_schemes"])]
+        print(f"  usable schemes           : {', '.join(schemes)}")
+        if not backend["cryptography_installed"]:
+            print("  (install asymmetric/PQC signing with:  pip install 'greynoc-bastion[pqc]')")
+        return 0
+
     if args.evidence_cmd == "keygen":
-        key_path = Path(args.key) if args.key else _default_key_path(app)
+        if args.scheme == "hmac":
+            key_path = Path(args.key) if args.key else _default_key_path(app)
+            try:
+                written = app.evidence_center.generate_key(key_path, force=args.force)
+            except FileExistsError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
+            app.db.audit("evidence_keygen", actor=_actor(), detail=f"scheme=hmac key={written}")
+            if args.json:
+                _print_json({"scheme": "hmac-sha256-detached", "key": written})
+                return 0
+            print(f"Signing key written to {written} (owner-only permissions).")
+            print("Scheme: hmac-sha256-detached (shared-key tamper evidence).")
+            print("Share it ONLY out-of-band with parties who must verify your bundles.")
+            return 0
+        # Asymmetric / hybrid-PQC keypair.
+        priv_path = Path(args.key) if args.key else _default_key_path(app)
+        pub_path = Path(args.pub) if args.pub else _default_pub_path(app)
         try:
-            written = app.evidence_center.generate_key(key_path, force=args.force)
+            info = app.evidence_center.generate_keypair(
+                priv_path, pub_path, scheme=args.scheme, force=args.force)
+        except signing.SigningBackendUnavailable as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         except FileExistsError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
-        app.db.audit("evidence_keygen", actor=_actor(), detail=f"key={written}")
-        print(f"Signing key written to {written} (owner-only permissions).")
-        print("Share it ONLY out-of-band with parties who must verify your bundles.")
+        app.db.audit("evidence_keygen", actor=_actor(),
+                     detail=f"scheme={info['scheme']} key_id={info['key_id']}")
+        if args.json:
+            _print_json(info)
+            return 0
+        print(f"Keypair generated (scheme: {info['scheme']}).")
+        print(f"  private key : {info['private_key']} (owner-only — keep secret)")
+        print(f"  public key  : {info['public_key']} (share this to let others verify)")
+        print(f"  algorithms  : {', '.join(info['algorithms'])}")
+        print(f"  key id      : {info['key_id']}")
+        print(f"  trust model : {signing.trust_model(info['scheme'])}")
         return 0
 
     if args.evidence_cmd == "sign":
@@ -517,16 +581,19 @@ def cmd_evidence(args) -> int:
         key_path = Path(args.key) if args.key else _default_key_path(app)
         try:
             info = app.evidence_center.sign_bundle(bundle, key_path=key_path)
-        except (FileNotFoundError, ValueError) as exc:
+        except (FileNotFoundError, ValueError, PermissionError,
+                signing.SigningBackendUnavailable) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         app.db.audit("evidence_signed", actor=_actor(),
-                     detail=f"bundle={bundle.name} key_id={info['key_id']}")
+                     detail=f"bundle={bundle.name} scheme={info['scheme']} key_id={info['key_id']}")
         if args.json:
             _print_json(info)
             return 0
         print(f"Signed: {info['signature_path']}")
         print(f"  scheme    : {info['scheme']}")
+        if info.get("algorithms"):
+            print(f"  algorithms: {', '.join(info['algorithms'])}")
         print(f"  key id    : {info['key_id']}")
         print(f"  bundle sha: {info['bundle_sha256'][:32]}…")
         return 0
@@ -538,11 +605,19 @@ def cmd_evidence(args) -> int:
             return 2
         result = app.evidence_center.verify_bundle(bundle_path)
         sig_result = None
-        if args.key or args.signature:
+        if args.key or args.pubkey or args.signature:
             key_path = Path(args.key) if args.key else _default_key_path(app)
+            # Offer the default public key too, so `verify --pubkey`-less runs on
+            # an asymmetric bundle can still find it; scheme dispatch picks which.
+            verify_pub: Path | None
+            if args.pubkey:
+                verify_pub = Path(args.pubkey)
+            else:
+                default_pub = _default_pub_path(app)
+                verify_pub = default_pub if default_pub.is_file() else None
             try:
                 sig_result = app.evidence_center.verify_signature(
-                    bundle_path, key_path=key_path,
+                    bundle_path, key_path=key_path, public_key_path=verify_pub,
                     signature_path=Path(args.signature) if args.signature else None)
             except (FileNotFoundError, ValueError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
@@ -1028,21 +1103,34 @@ def build_parser() -> argparse.ArgumentParser:
     evp = sub.add_parser("evidence", help="evidence bundle tools")
     evsub = evp.add_subparsers(dest="evidence_cmd", required=True)
     evv = evsub.add_parser("verify", parents=[common],
-                           help="verify a bundle's integrity (and its signature with --key)")
+                           help="verify a bundle's integrity (and its signature with --key/--pubkey)")
     evv.add_argument("bundle", help="path to a .evidence.zip bundle")
-    evv.add_argument("--key", help="signing key file (default: <home>/keys/evidence.key)")
+    evv.add_argument("--key", help="HMAC signing key file (default: <home>/keys/evidence.key)")
+    evv.add_argument("--pubkey", help="public key file for asymmetric/hybrid bundles "
+                                      "(default: <home>/keys/evidence.pub)")
     evv.add_argument("--signature", help="detached signature file (default: <bundle>.sig.json)")
     evv.set_defaults(func=cmd_evidence)
     evk = evsub.add_parser("keygen", parents=[common],
-                           help="generate a local signing key (shared-key HMAC scheme)")
-    evk.add_argument("--key", help="where to write the key (default: <home>/keys/evidence.key)")
+                           help="generate a local signing key (HMAC, or an asymmetric/PQC keypair)")
+    evk.add_argument("--scheme", default="hmac",
+                     choices=["hmac", "ed25519", "ml-dsa-65", "hybrid"],
+                     help="signing scheme (default: hmac). ed25519/ml-dsa-65/hybrid need "
+                          "the optional 'cryptography' backend and write a keypair.")
+    evk.add_argument("--key", help="where to write the (private) key "
+                                   "(default: <home>/keys/evidence.key)")
+    evk.add_argument("--pub", help="where to write the public key for asymmetric schemes "
+                                   "(default: <home>/keys/evidence.pub)")
     evk.add_argument("--force", action="store_true", help="rotate: overwrite an existing key")
     evk.set_defaults(func=cmd_evidence)
     evs = evsub.add_parser("sign", parents=[common],
                            help="write a detached signature next to a bundle")
     evs.add_argument("bundle", help="path to a .evidence.zip bundle")
-    evs.add_argument("--key", help="signing key file (default: <home>/keys/evidence.key)")
+    evs.add_argument("--key", help="signing key file (HMAC or asymmetric private key; "
+                                   "default: <home>/keys/evidence.key)")
     evs.set_defaults(func=cmd_evidence)
+    evb = evsub.add_parser("backends", parents=[common],
+                           help="show which signing schemes are available")
+    evb.set_defaults(func=cmd_evidence)
 
     cp = sub.add_parser("cases", help="case management (assign / track / close findings)")
     csub = cp.add_subparsers(dest="cases_cmd", required=True)
